@@ -4,8 +4,50 @@ import torch_geometric
 from torch_geometric.data import Data
 import torch, torch.nn as nn
 from .gcn import GCNLayer
-from .data import augment_with_time
 from typing import Callable
+
+def augment_with_time(
+    x:torch.Tensor, 
+    t:int, size:int=1, 
+    augment:bool=True
+) -> torch.Tensor:  
+    '''
+    Augment feature matrix x with zeros and time.
+
+    Parameters
+    ----------
+    x
+        The input features to augment.
+    
+    t
+        Time to append to x.
+
+    size
+        Number of columns of zeros to add to x.
+
+    augment
+        Whether or not to augment x with zeroes and time. If `False` returns x unchanged
+    
+    Returns
+    -------
+    augmented
+        The augmented tensor (x, t, zeros...).
+    '''
+    # Internally handle if / else statement
+    if not augment:
+        return x
+    
+    # Ensure t is wrapped as torch Tensor
+    t = torch_t(t, device=x.device)
+    
+    # Augment with size number of 0s
+    zeros = torch.zeros(x.size(dim=0), size).to(x.device)
+    
+    # Time is only concatenated once
+    times = t.repeat(x.size(dim=0), 1)
+        
+    augmented = torch.cat((x, times, zeros), dim=1)
+    return augmented
 
 
 class GDEFunc(nn.Module):
