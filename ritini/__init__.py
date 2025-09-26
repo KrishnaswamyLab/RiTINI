@@ -10,7 +10,6 @@ __author__ = "Joao Felipe Santos"
 __email__ = "joaofelipe@example.com"
 
 from .ritini import RiTINI
-from .core import *
 from .data_generation import *
 
 # Make RiTINI the default export for direct usage

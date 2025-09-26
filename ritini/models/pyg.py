@@ -1,16 +1,16 @@
 __all__ = ['MeanAttentionLayer', 'SumAttentionLayer', 'PyGSequential', 'PyGGATConv', 'PyGSAGEConv', 'PyGTAGConv', 'PyGPNAConv', 'GODE']
 
-import itertools, math, numpy as np, pandas as pd
-import torch, torch.nn as nn, torch.nn.functional as F
-from torch.nn.parameter import Parameter
-from torch.nn.modules.module import Module
-import torchdiffeq
+import itertools
+import math
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 from torch_geometric.nn import GATConv, SAGEConv, TAGConv, PNAConv
 from torch_geometric.data import Data
 from torch_geometric.utils import add_self_loops, degree
-
-from typing import Callable, Union, Literal
 
 class MeanAttentionLayer(nn.Module):
     def __init__(self, axis=1):
@@ -87,7 +87,7 @@ class PyGPNAConv(PNAConv):
     def forward(self, x, edge_index, edge_attr=None, **kwargs):
         return super().forward(x, edge_index, edge_attr, **kwargs)
 
-from .utils import is_list_like
+from ..utils.utils import is_list_like
 
 class GODE(nn.Module):
     def __init__(self, in_feats, out_feats, num_heads, activation=nn.Tanh):
