@@ -9,7 +9,7 @@ __all__ = ['augment_with_time', 'group_extract', 'sample_group', 'sample_group_i
 # %% ../nbs/06_data.ipynb 3
 import os, numpy as np, pandas as pd, torch, itertools
 from typing import Callable, Union
-from .utils import get_device, torch_t
+from ..utils import get_device, torch_t
 
 def augment_with_time(
     x:torch.Tensor, 
@@ -547,7 +547,7 @@ def make_results_dataframe(
 
 # %% ../nbs/06_data.ipynb 7
 from scipy.stats import spearmanr
-from .utils import dearray
+from ..utils import dearray
 def get_spearmanr_at_t_k(data_ti, data_tp, t=0, k=0, drop_one=True):
     # NOTE: t = gene (TF factor), k = kind, 
     

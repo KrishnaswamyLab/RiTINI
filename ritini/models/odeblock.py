@@ -4,7 +4,7 @@
 __all__ = ['ODEBlock']
 
 # %% ../nbs/04_odeblock.ipynb 3
-import dgl
+import torch_geometric
 import torch
 import torch.nn as nn, torchdiffeq
 

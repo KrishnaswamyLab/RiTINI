@@ -57,7 +57,9 @@ def get_indices(timestamps, set_ts, bs):
 
 # %% ../nbs/01_utils.ipynb 7
 import itertools, math, numpy as np, pandas as pd
-import dgl, dgl.function as fn
+import torch_geometric
+from torch_geometric.data import Data
+from torch_geometric.utils import to_dense_adj, dense_to_sparse
 
 import torch, torch.nn as nn, torch.nn.functional as F
 from torch.nn.parameter import Parameter
