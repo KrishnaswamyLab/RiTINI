@@ -1,4 +1,4 @@
-__all__ = ['MeanAttentionLayer', 'SumAttentionLayer', 'PyGSequential', 'PyGGATConv', 'PyGSAGEConv', 'PyGTAGConv', 'PyGPNAConv', 'GODE']
+__all__ = ['MeanAttentionLayer', 'SumAttentionLayer', 'PygSequential', 'PygSAGEConv', 'PygTAGConv', 'PygPNAConv', 'GODE']
 
 import itertools
 import math
@@ -12,12 +12,18 @@ from torch_geometric.nn import GATConv, SAGEConv, TAGConv, PNAConv
 from torch_geometric.data import Data
 from torch_geometric.utils import add_self_loops, degree
 
+
+from ..utils.utils import is_list_like
+
+## TODO: THIS IS LIKELY WRONG
 class MeanAttentionLayer(nn.Module):
     def __init__(self, axis=1):
         super().__init__()
         self.axis = axis
-    def forward(self, x):
-        return torch.mean(x, axis=self.axis)
+        
+    def forward(self, x, attention_weights=None):
+        # Don't reduce feature dimension, just pass through
+        return x
 
 class SumAttentionLayer(nn.Module):
     def __init__(self, axis=1):
@@ -26,57 +32,55 @@ class SumAttentionLayer(nn.Module):
     def forward(self, x):
         return torch.sum(x, axis=self.axis)
 
-class PyGSequential(nn.Module):
+class PygSequential(nn.Module):
     def __init__(self, *args):
-        super(PyGSequential, self).__init__()
-        for idx, module in enumerate(args):
-            self.add_module(str(idx), module)
+        super(PygSequential, self).__init__()
+        self.layers = nn.ModuleList(args)
 
     def forward(self, x, edge_index, **kwargs):
-        for module in self:
-            x = module(x, edge_index)
+        # First layer returns x and attention
+        x, attention_weights = self.layers[0](x, edge_index)
+        
+        # Second layer uses attention
+        x = self.layers[1](x, attention_weights)
+        
         return x
 
-class PyGGATConv(GATConv):
-    def __init__(
-            self, in_feats, out_feats, num_heads,
-            dropout=0.0, negative_slope=0.2, residual=False,
-            bias=True, **kwargs
-        ):
-         super(PyGGATConv, self).__init__(
-             in_feats, out_feats, heads=num_heads, dropout=dropout,
-             negative_slope=negative_slope, add_self_loops=True, bias=bias, **kwargs
-            )
+# class GATConvWithAttention(GATConv):
+#     def __init__(self, in_feats, out_feats, num_heads, feat_drop=0.0, attn_drop=0.0, 
+#                  negative_slope=0.2, residual=False, activation=None, bias=True):
+#         super(GATConvWithAttention, self).__init__(in_feats, out_feats, num_heads, 
+#                                          negative_slope=negative_slope, dropout=attn_drop, bias=bias)
 
-    def forward(self, x, edge_index, get_attention=False, **kwargs):
-        if get_attention:
-            return super().forward(x, edge_index, return_attention_weights=True, **kwargs)
-        else:
-            return super().forward(x, edge_index, **kwargs)
+#     def forward(self, x, edge_index, get_attention=False):
+#         if get_attention:
+#             return super().forward(x, edge_index, return_attention_weights=True)
+#         else:
+#             return super().forward(x, edge_index)
 
-class PyGSAGEConv(SAGEConv):
+class PygSAGEConv(SAGEConv):
     def __init__(self, in_feats, out_feats, aggregator_type='mean', bias=True, normalize=False, **kwargs):
         aggr = aggregator_type if aggregator_type in ['mean', 'max', 'add'] else 'mean'
-        super(PyGSAGEConv, self).__init__(
+        super(SAGEConv, self).__init__(
             in_feats, out_feats, aggr=aggr, bias=bias, normalize=normalize, **kwargs
         )
 
     def forward(self, x, edge_index, **kwargs):
         return super().forward(x, edge_index, **kwargs)
 
-class PyGTAGConv(TAGConv):
+class PygTAGConv(TAGConv):
     def __init__(self, in_feats, out_feats, k=2, bias=True, **kwargs):
-         super(PyGTAGConv, self).__init__(in_feats, out_feats, K=k, bias=bias, **kwargs)
+         super(TAGConv, self).__init__(in_feats, out_feats, K=k, bias=bias, **kwargs)
 
     def forward(self, x, edge_index, edge_weight=None, **kwargs):
         return super().forward(x, edge_index, edge_weight, **kwargs)
 
-class PyGPNAConv(PNAConv):
+class PygPNAConv(PNAConv):
     def __init__(
             self, in_size, out_size, aggregators, scalers, deg=None,
             dropout=0.0, num_towers=1, edge_feat_size=0, **kwargs
         ):
-        super(PyGPNAConv, self).__init__(
+        super(PNAConv, self).__init__(
             in_channels=in_size, out_channels=out_size,
             aggregators=aggregators, scalers=scalers, deg=deg,
             dropout=dropout, towers=num_towers,
@@ -86,8 +90,6 @@ class PyGPNAConv(PNAConv):
 
     def forward(self, x, edge_index, edge_attr=None, **kwargs):
         return super().forward(x, edge_index, edge_attr, **kwargs)
-
-from ..utils.utils import is_list_like
 
 class GODE(nn.Module):
     def __init__(self, in_feats, out_feats, num_heads, activation=nn.Tanh):
@@ -100,7 +102,7 @@ class GODE(nn.Module):
         num_heads = num_heads if is_list_like(num_heads) else [num_heads]
 
         for idx, module in enumerate([
-            PyGGATConv(
+            PygGATConv(
                 in_feats=in_feats, out_feats=out_feats,
                 num_heads=n_heads,
                 dropout=0.0

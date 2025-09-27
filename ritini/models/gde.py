@@ -5,6 +5,7 @@ from torch_geometric.data import Data
 import torch, torch.nn as nn
 from .gcn import GCNLayer
 from typing import Callable
+from ..utils.utils import torch_t
 
 def augment_with_time(
     x:torch.Tensor, 
@@ -55,12 +56,13 @@ class GDEFunc(nn.Module):
         self, 
         gnn:nn.Module, 
         augment:bool=False, 
-        augment_size:int=2
+        augment_size:int=2,
     ):
         """General GDE function class. To be passed to an ODEBlock"""
         super().__init__()
         self.gnn = gnn
-        
+        self.edge_index = None
+
         # Number of function calls
         self.nfe = 0
         
@@ -81,10 +83,11 @@ class GDEFunc(nn.Module):
         
         # NOTE: technically dxdt
         if hasattr(self, 'edge_index'):
-            x = self.gnn(x, self.edge_index)
+            dx_dt = self.gnn(x, self.edge_index)
         else:
-            x = self.gnn(x)
-        return x
+            dx_dt = self.gnn(x,self.edge_index)
+        return dx_dt
+    
 class ControlledGDEFunc(GDEFunc):
     def __init__(self, gnn:nn.Module):
         """ Controlled GDE version. Input information is preserved longer via hooks to input node features X_0, 

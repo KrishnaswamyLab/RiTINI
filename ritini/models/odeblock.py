@@ -27,12 +27,17 @@ class ODEBlock(nn.Module):
         self.rtol = rtol
 
     def forward(
-        self, x:torch.Tensor, t:torch.Tensor, 
+        self, 
+        x:torch.Tensor,
+        edge_index: torch.Tensor, 
+        t:torch.Tensor, 
         return_whole_sequence:bool=False
     ):
+        self.func.edge_index = edge_index
         t = torch_t(t)
         t = t.to(x.device).type_as(x)
   
+        
         solver = getattr(torchdiffeq, self.ode_function) 
 
         out = solver(

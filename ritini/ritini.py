@@ -5,15 +5,28 @@ Main RiTINI operator for regulatory temporal interaction network inference.
 import logging
 from typing import Dict, Any, Optional, Union
 from pathlib import Path
+import torch
+import torch.nn as nn
+
+from .models.pyg import *
+from .models.gde import *
+from .models.odeblock import *
 
 from .models.factory import get_model, load_data
+
+from .models.gatConvWithAttention import GATConvWithAttention
 from .utils.plots import *
+from .utils.data_processing import *
 from .data_generation.sergio import *
+import pandas as pd
+import numpy as np
+from torch.optim.lr_scheduler import StepLR
+
 
 logger = logging.getLogger(__name__)
 
 
-class RiTINI:
+class RiTINI():
     """
     Main RiTINI operator for regulatory temporal interaction network inference.
 
@@ -27,7 +40,8 @@ class RiTINI:
         >>> networks = ri.infer(data_path="test_data.csv")
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, 
+                 config: Optional[Dict[str, Any]] = None):
         """
         Initialize RiTINI operator.
 
@@ -35,8 +49,9 @@ class RiTINI:
             config: Optional configuration dictionary
         """
         self.config = config or {}
-        self.model = None
         self.trained = False
+        self.data = None
+        self.model = get_model(self.config['model_type'], self.config)
 
         # Setup logging
         if not logger.handlers:
@@ -49,12 +64,33 @@ class RiTINI:
             logger.setLevel(logging.INFO)
 
     def train(self,
-              data_path: Union[str, Path],
+              data_path: Union[str, Path] = None,
+              data: Optional[Dict[str, Any]] = None,
+              df_train: Optional[pd.DataFrame] = None,
               model_type: str = "gcn",
               epochs: int = 100,
               learning_rate: float = 0.001,
+              weight_decay: float = 5e-4,
+              step_size: int = 350,
+              gamma: float = 0.1,
               output_dir: Optional[Union[str, Path]] = None,
-              **kwargs) -> None:
+              input_features: Optional[int] = None,
+              output_features: Optional[int] = None,
+              # Training loop specific parameters
+              top_genes: Optional[list] = None,
+              train_g: Optional[Any] = None,
+              n_cells_at_t: Optional[int] = None,
+              time_bins: Optional[list] = None,
+              num_cell_types: Optional[int] = None,
+              cell_types: Optional[list] = None,
+              steps: int = 100,
+              verbose_step: int = 1,
+              link_step: int = 2,
+              add_n: int = 5,
+              del_n: int = 5,
+              lambda_l1: float = 10.0,
+              device: str = 'cpu',
+              **kwargs) -> None:    
         """
         Train a neural ODE model for network inference.
 
@@ -73,9 +109,15 @@ class RiTINI:
             'model_type': model_type,
             'epochs': epochs,
             'learning_rate': learning_rate,
-            'data_path': str(data_path),
+            'weight_decay': weight_decay,
+            'step_size': step_size,
+            'gamma': gamma,
+            'device': device,
             **kwargs
         })
+
+        if data_path:
+            self.config['data_path'] = str(data_path)
 
         if output_dir:
             output_path = Path(output_dir)
@@ -83,17 +125,83 @@ class RiTINI:
             self.config['output_path'] = str(output_path)
 
         try:
-            # Load data
-            logger.info("Loading training data...")
-            train_data = load_data(str(data_path))
-
             # Initialize model
             logger.info(f"Initializing {model_type} model...")
             self.model = get_model(model_type, self.config)
+            model = self.model.to(device)
 
-            # Train model
+            # Setup optimizer and scheduler
+            optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+            scheduler = StepLR(optimizer, step_size=step_size, gamma=gamma)
+            criterion = torch.nn.MSELoss()
+
+            # Prepare data structures
+            # PyTorch Geometric graph - use num_nodes to get node indices
+            node_indices = list(range(train_g.num_nodes))
+            edge_index = train_g.edge_index.to(device)
+
+            nodes_names = [top_genes[i] for i in node_indices]
+            node_map_full = {n: i for i, n in enumerate(nodes_names)}
+            tfs = top_genes[::5]
+
+            attentions = {}
+            all_losses = []
+            all_main_losses = []
+            all_l1_losses = []
+
+            # Training loop
             logger.info("Starting training...")
-            # TODO: Implement training loop
+            for step_i in range(steps):
+                data_tps = []
+                data_tis = []
+
+                for _t, time_i in enumerate(time_bins[:-1]):
+                    t0 = time_bins[_t]
+                    t1 = time_bins[_t + 1]
+
+                    ## Here we are retrieving the X for the genes.
+                    data_t0 = get_n_cells_of_all_types_at_time_t(df_train, n_cells_at_t, t0, genes=top_genes)
+                    data_t1 = get_n_cells_of_all_types_at_time_t(df_train, n_cells_at_t, t1, genes=top_genes)
+
+                    data_t0 = torch.Tensor(data_t0)
+                    data_t1 = torch.Tensor(data_t1)
+
+                    model.train()
+
+                    # We need to change here to receive data_t0 and the edge_index
+                    data_tp = model(
+                        data_t0,
+                        edge_index,
+                        torch.Tensor([t0, t1]),
+                        return_whole_sequence=False
+                    )
+
+                    _, attn = model.func.gnn.layers[0](data_t0,edge_index, get_attention=True)
+                    main_loss = criterion(data_tp, data_t1)
+                    l1_loss = torch.norm(attn, 1)
+
+                    loss = main_loss
+
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+
+                    if _t == 0:
+                        data_tis.append(data_t0.clone().detach())
+                    data_tis.append(data_t1.clone().detach())
+                    data_tps.append(data_tp.clone().detach())
+                    all_losses.append(loss)
+                    all_main_losses.append(main_loss)
+                    all_l1_losses.append(l1_loss)
+
+                avg_main_losses = torch.mean(torch.tensor(all_main_losses)).item()
+                print("Dynamics Prediction loss:", avg_main_losses)
+                scheduler.step()
+
+                if step_i % verbose_step == 0:
+                    model.eval()
+                    # TODO: Implement test_loop integration
+                    pass
 
             self.trained = True
             logger.info("Training completed successfully!")
