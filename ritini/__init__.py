@@ -6,8 +6,8 @@ Neural ODEs and Graph Neural Networks.
 """
 
 __version__ = "0.1.0"
-__author__ = "Joao Felipe Santos"
-__email__ = "joaofelipe@example.com"
+__author__ = "Joao Felipe Rocha"
+__email__ = "joaofelipe.rocha@yale.edu"
 
 from .ritini import RiTINI
 from .data_generation import *

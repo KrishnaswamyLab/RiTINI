@@ -146,11 +146,15 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 If you use RiTINI in your research, please cite:
 
 ```bibtex
-@software{ritini,
-  title={RiTINI: Regulatory Temporal Interaction Network Inference},
-  author={Santos, João Felipe},
-  year={2024},
-  url={https://github.com/joaofelipe/RiTINI}
+@misc{https://doi.org/10.48550/arxiv.2306.07803,
+  doi = {10.48550/ARXIV.2306.07803},
+  url = {https://arxiv.org/abs/2306.07803},
+  author = {Bhaskar,  Dhananjay and Magruder,  Sumner and De Brouwer,  Edward and Venkat,  Aarthi and Wenkel,  Frederik and Wolf,  Guy and Krishnaswamy,  Smita},
+  keywords = {Machine Learning (cs.LG),  FOS: Computer and information sciences,  FOS: Computer and information sciences},
+  title = {Inferring dynamic regulatory interaction graphs from time series data with perturbations},
+  publisher = {arXiv},
+  year = {2023},
+  copyright = {Creative Commons Attribution 4.0 International}
 }
 ```
 
