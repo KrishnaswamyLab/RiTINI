@@ -15,7 +15,7 @@ from torch_geometric.utils import add_self_loops, degree
 
 from ..utils.utils import is_list_like
 
-## TODO: THIS IS LIKELY WRONG
+## TODO: THIS MIGHT BE WRONG
 class MeanAttentionLayer(nn.Module):
     def __init__(self, axis=1):
         super().__init__()
@@ -45,18 +45,6 @@ class PygSequential(nn.Module):
         x = self.layers[1](x, attention_weights)
         
         return x
-
-# class GATConvWithAttention(GATConv):
-#     def __init__(self, in_feats, out_feats, num_heads, feat_drop=0.0, attn_drop=0.0, 
-#                  negative_slope=0.2, residual=False, activation=None, bias=True):
-#         super(GATConvWithAttention, self).__init__(in_feats, out_feats, num_heads, 
-#                                          negative_slope=negative_slope, dropout=attn_drop, bias=bias)
-
-#     def forward(self, x, edge_index, get_attention=False):
-#         if get_attention:
-#             return super().forward(x, edge_index, return_attention_weights=True)
-#         else:
-#             return super().forward(x, edge_index)
 
 class PygSAGEConv(SAGEConv):
     def __init__(self, in_feats, out_feats, aggregator_type='mean', bias=True, normalize=False, **kwargs):
