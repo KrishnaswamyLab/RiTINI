@@ -1,10 +1,10 @@
-# RiTINI: Recurrent Temporal Inference for Neural Interactions
+# RiTINI: Regulatory Temporal Interaction Network Inference
 
 A Graph Neural Ordinary Differential Equation (ODE) framework for modeling and predicting gene expression trajectories over time. RiTINI combines Graph Attention Networks (GATs) with Neural ODEs to capture the continuous temporal dynamics of gene regulatory networks.
 
 ## Overview
 
-RiTINI (Recurrent Temporal Inference for Neural Interactions) is designed to:
+RiTINI (Regulatory Temporal Interaction Network Inference) is designed to:
 - Model temporal gene expression data using graph neural networks
 - Learn attention-based gene regulatory networks from trajectory data
 - Predict future gene expression states through continuous-time ODEs
