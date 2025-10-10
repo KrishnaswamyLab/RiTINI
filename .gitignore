@@ -203,7 +203,8 @@ training_history.json
 # UV lock file (uncomment if you want to ignore it)
 # uv.lock
 
-/data
+/data/*
+!/data/.gitkeep
 
 # Visualization outputs
 /visualizations/

@@ -18,4 +18,5 @@ dependencies = [
     "pytest>=8.4.2",
     "scanpy>=1.11.4",
     "scikit-misc>=0.5.1",
+    "ipykernel>=6.30.1",
 ]
