@@ -9,6 +9,100 @@ import scanpy as sc
 import anndata
 
 
+def process_single_trajectory_data(
+    trajectory_file: str,
+    granger_pval_file: str,
+    granger_coef_file: str,
+    gene_names_file: str
+) -> Dict[str, any]:
+    """
+    Load and prepare trajectory data for RiTINI.
+
+    Args:
+        trajectory_file: Path to trajectory .npy file with shape (n_timepoints, n_genes)
+        granger_pval_file: Path to Granger causality p-values CSV
+        granger_coef_file: Path to Granger causality coefficients CSV
+        gene_names_file: Path to gene names file (hvg.txt)
+
+    Returns:
+        Dictionary containing:
+            - trajectories: Trajectory data (n_timepoints, n_genes)
+            - prior_adjacency: Prior graph as adjacency matrix (n_genes, n_genes)
+            - prior_graph: Prior graph as NetworkX object
+            - gene_names: List of gene names
+            - n_genes: Total number of genes in input
+            - n_timepoints: Number of timepoints
+            - node_features: Node features (n_timepoints, n_genes) tensor
+            - signed_score_df: Signed score dataframe from Granger causality
+    """
+    # Load trajectory data from file
+    trajectories = np.load(trajectory_file)
+    print(f"Trajectory shape: {trajectories.shape}")
+
+    # Add trajectory dimension if needed: (n_timepoints, n_genes) -> (n_timepoints, 1, n_genes)
+    if trajectories.ndim == 2:
+        trajectories = trajectories[:, np.newaxis, :]
+        
+    # Load gene names
+    gene_names = np.loadtxt(gene_names_file, dtype=str)
+    
+    # Load Granger causality results
+    pval_df = pd.read_csv(granger_pval_file, index_col=0)
+    coef_df = pd.read_csv(granger_coef_file, index_col=0)
+    
+    # Create signed score dataframe
+    log_pval_df = -np.log(pval_df + 2 ** -10)
+    coef_sign_df = np.sign(coef_df)
+    signed_score_df = log_pval_df * coef_sign_df
+    signed_score_df.columns = signed_score_df.columns.str.strip('_y')
+    signed_score_df.index = signed_score_df.index.str.strip('_x')
+    
+    # Create prior graph from signed_score_df
+    prior_graph = nx.DiGraph()
+    
+    # Add all genes as nodes
+    for gene in gene_names:
+        prior_graph.add_node(gene)
+    
+    # Add edges based on signed_score_df
+    for source in signed_score_df.index:
+        for target in signed_score_df.columns:
+            score = signed_score_df.loc[source, target]
+            if not np.isnan(score) and score != 0:
+                prior_graph.add_edge(source, target, weight=score)
+    
+    n_timepoints, n_trajectories , n_genes = trajectories.shape
+
+    # Convert trajectories to node features tensor
+    node_features = torch.tensor(
+        trajectories.squeeze(1),
+        dtype=torch.float32
+    )  # Shape: (n_timepoints, n_genes)
+
+    # Convert prior graph to adjacency matrix
+    # Map gene names to indices
+    gene_to_idx = {gene: idx for idx, gene in enumerate(gene_names)}
+    
+    prior_adjacency = torch.zeros(n_genes, n_genes)
+    for edge in prior_graph.edges():
+        if edge[0] in gene_to_idx and edge[1] in gene_to_idx:
+            i = gene_to_idx[edge[0]]
+            j = gene_to_idx[edge[1]]
+            prior_adjacency[i, j] = 1
+            prior_adjacency[j, i] = 1  # Symmetric
+
+    return {
+        'trajectories': trajectories,
+        'prior_adjacency': prior_adjacency,
+        'prior_graph': prior_graph,
+        'gene_names': gene_names,
+        'n_genes': n_genes,
+        'n_timepoints': n_timepoints,
+        'node_features': node_features,
+        'signed_score_df': signed_score_df
+    }
+
+
 def prepare_trajectories_data(
     trajectory_file: str,
     n_top_genes: int,

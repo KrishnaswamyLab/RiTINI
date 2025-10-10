@@ -3,11 +3,10 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+from tqdm import tqdm
 from pathlib import Path
-from ritini.data.trajectory_loader import prepare_trajectories_data
+from ritini.data.trajectory_loader import prepare_trajectories_data,process_single_trajectory_data
 from ritini.models.RiTINI import RiTINI
-import pickle
-import os
 
 def infer_graphs_at_timepoints(
     model,
@@ -27,170 +26,53 @@ def infer_graphs_at_timepoints(
         threshold: Attention weight threshold for edge inclusion
 
     Returns:
-        list of networkx graphs, one per timepoint
         list of attention weight matrices, one per timepoint
         predictions: predicted next timepoint values (n_timepoints-1, n_genes)
         targets: actual next timepoint values (n_timepoints-1, n_genes)
     """
     model.eval()
-    graphs = []
-    attention_matrices = []
-    predictions = []
-    targets = []
 
-    # Convert prior adjacency to edge_index
+    # Convert prior adjacency to edge_index for first timepoint
     edge_index = torch.nonzero(prior_adjacency, as_tuple=False).t().to(device)
     n_genes = node_features.shape[1]
 
     with torch.no_grad():
-        for t in range(node_features.shape[0]):
-            # Get features at this timepoint
-            x = node_features[t].unsqueeze(1).to(device)  # (n_genes, 1)
+        all_preds = []
+        all_attention_matrices = []
 
-            # Forward pass to get predictions and attention weights
-            pred, (edge_idx, attention_weights) = model(x, edge_index)
+        # Move all data to GPU at once
+        x = node_features.unsqueeze(2).to(device)  # (T, n_genes, 1)
 
-            # Store predictions and targets (if not last timepoint)
-            if t < node_features.shape[0] - 1:
-                predictions.append(pred.squeeze().cpu())
-                targets.append(node_features[t + 1].cpu())
-
-            # Build adjacency matrix from attention weights
-            attention_matrix = torch.zeros(n_genes, n_genes)
-            for i, (src, dst) in enumerate(edge_idx.t().cpu()):
-                attention_matrix[src, dst] = attention_weights[i].mean().item()
-
-            attention_matrices.append(attention_matrix.numpy())
-
-            # Create networkx graph from thresholded attention weights
-            G = nx.Graph()
-            G.add_nodes_from(range(n_genes))
-
-            for i, (src, dst) in enumerate(edge_idx.t().cpu()):
-                weight = attention_weights[i].mean().item()
-                if weight >= threshold:
-                    G.add_edge(src.item(), dst.item(), weight=weight)
-
-            graphs.append(G)
-
-    predictions = torch.stack(predictions) if predictions else None
-    targets = torch.stack(targets) if targets else None
-
-    return graphs, attention_matrices, predictions, targets
-
-
-def visualize_graphs_at_timepoints(
-    graphs,
-    attention_matrices,
-    gene_names=None,
-    save_dir="visualizations",
-    timepoints_to_show=None
-):
-    """
-    Visualize inferred graphs at multiple timepoints.
-
-    Args:
-        graphs: List of networkx graphs
-        attention_matrices: List of attention weight matrices
-        gene_names: Optional list of gene names for node labels
-        save_dir: Directory to save visualizations
-        timepoints_to_show: List of specific timepoint indices to visualize (None = all)
-    """
-    save_path = Path(save_dir)
-    save_path.mkdir(exist_ok=True, parents=True)
-
-    n_timepoints = len(graphs)
-
-    if timepoints_to_show is None:
-        timepoints_to_show = range(n_timepoints)
-
-    # Visualize individual timepoint graphs
-    for t in timepoints_to_show:
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
-
-        # Plot graph
-        G = graphs[t]
-        pos = nx.spring_layout(G, seed=42)
-
-        # Draw nodes
-        nx.draw_networkx_nodes(G, pos, node_color='lightblue',
-                              node_size=500, ax=ax1)
-
-        # Draw edges with weights
-        edges = G.edges()
-        weights = [G[u][v]['weight'] for u, v in edges]
-
-        if len(weights) > 0:
-            nx.draw_networkx_edges(G, pos, width=weights,
-                                  alpha=1, edge_color=weights,
-                                  edge_cmap=plt.cm.Reds, ax=ax1)
-
-        # Draw labels
-        
-        if gene_names is not None:
-            labels = {i: gene_names[i] for i in G.nodes()}
-            nx.draw_networkx_labels(G, pos, labels, font_size=8, ax=ax1)
-        else:
+        for t in tqdm(range(node_features.shape[0])):
+            # Forward pass
+            pred, (edge_idx, attention_weights) = model(x[t], edge_index)
             
-            labels = {i: i for i in G.nodes()}
-            nx.draw_networkx_labels(G, pos, font_size=8, ax=ax1)
+            # Store predictions
+            if t < node_features.shape[0] - 1:
+                all_preds.append(pred.squeeze())
+            
+            # Build adjacency matrix on GPU
+            attention_matrix = torch.zeros(n_genes, n_genes, device=device)
+            src, dst = edge_idx[0], edge_idx[1]
+            attention_matrix[src, dst] = attention_weights.mean(dim=1) if attention_weights.dim() > 1 else attention_weights
+            
+            all_attention_matrices.append(attention_matrix)
+            
+            # Update edge_index for next timepoint based on attention weights
+            # Option 1: Use edges above threshold
+            if threshold is not None:
+                mask = attention_weights.mean(dim=1) > threshold if attention_weights.dim() > 1 else attention_weights > threshold
+                edge_index = edge_idx[:, mask]
+            # Option 2: Use the returned edge_idx directly
+            else:
+                edge_index = edge_idx
+        
+        # Keep as tensors
+        predictions = [p.cpu() for p in all_preds]
+        targets = [node_features[t + 1].cpu() for t in range(node_features.shape[0] - 1)]
+        attention_matrices = [a.cpu() for a in all_attention_matrices]
 
-        ax1.set_title(f'Inferred Graph at Timepoint {t}')
-        ax1.axis('off')
-
-        # Plot attention matrix heatmap
-        im = ax2.imshow(attention_matrices[t], cmap='Reds', aspect='auto')
-        ax2.set_title(f'Attention Weights at Timepoint {t}')
-        ax2.set_xlabel('Gene Index')
-        ax2.set_ylabel('Gene Index')
-        plt.colorbar(im, ax=ax2)
-
-        plt.tight_layout()
-        plt.savefig(save_path / f'graph_timepoint_{t:03d}.png', dpi=150, bbox_inches='tight')
-        plt.close()
-
-    print(f"Saved {len(timepoints_to_show)} graph visualizations to {save_dir}/")
-
-    # Create overview plot with multiple timepoints
-    n_show = min(6, len(timepoints_to_show))
-    selected_timepoints = np.linspace(0, n_timepoints-1, n_show, dtype=int)
-
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    axes = axes.flatten()
-
-    for idx, t in enumerate(selected_timepoints):
-        if idx >= len(axes):
-            break
-
-        G = graphs[t]
-        pos = nx.spring_layout(G, seed=42)
-
-        nx.draw_networkx_nodes(G, pos, node_color='lightblue',
-                              node_size=300, ax=axes[idx])
-
-        edges = G.edges()
-        weights = [G[u][v]['weight'] for u, v in edges]
-
-        if len(weights) > 0:
-            nx.draw_networkx_edges(G, pos, width=[w*2 for w in weights],
-                                  alpha=0.6, edge_color=weights,
-                                  edge_cmap=plt.cm.Reds, ax=axes[idx])
-
-        if gene_names is not None:
-            labels = {i: gene_names[i] for i in G.nodes()}
-            nx.draw_networkx_labels(G, pos, labels, font_size=6, ax=axes[idx])
-        else:
-            labels = {i: i for i in G.nodes()}
-            nx.draw_networkx_labels(G, pos, labels, font_size=6, ax=axes[idx])
-        axes[idx].set_title(f'Timepoint {t}')
-        axes[idx].axis('off')
-
-    plt.tight_layout()
-    plt.savefig(save_path / 'graphs_overview.png', dpi=150, bbox_inches='tight')
-    plt.close()
-
-    print(f"Saved overview visualization to {save_dir}/graphs_overview.png")
-
+    return attention_matrices, predictions, targets
 
 def visualize_gene_expression_trajectories(
     node_features,
@@ -334,14 +216,20 @@ def visualize_predictions(
     Visualize predicted vs actual next timepoint values.
 
     Args:
-        predictions: Predicted values (n_timepoints-1, n_genes)
-        targets: Actual values (n_timepoints-1, n_genes)
+        predictions: List of predicted tensors or tensor (n_timepoints-1, n_genes)
+        targets: List of target tensors or tensor (n_timepoints-1, n_genes)
         gene_names: Optional list of gene names
         save_dir: Directory to save visualizations
         timepoints_to_show: List of specific timepoint indices to visualize
     """
     save_path = Path(save_dir)
     save_path.mkdir(exist_ok=True, parents=True)
+
+    # Convert lists to tensors if needed
+    if isinstance(predictions, list):
+        predictions = torch.stack(predictions)
+    if isinstance(targets, list):
+        targets = torch.stack(targets)
 
     n_timepoints = predictions.shape[0]
     n_genes = predictions.shape[1]
@@ -433,51 +321,196 @@ def visualize_predictions(
 
     print(f"\nSaved prediction visualizations to {save_dir}/")
 
+def visualize_attention_heatmaps(
+    attention_matrices,
+    gene_names=None,
+    save_dir="visualizations",
+    timepoints_to_show=None,
+    vmin=None,
+    vmax=None,
+    cmap='viridis'
+):
+    """
+    Visualize attention matrices as heatmaps over time.
+
+    Args:
+        attention_matrices: List of attention matrices (n_timepoints, n_genes, n_genes)
+        gene_names: Optional list of gene names
+        save_dir: Directory to save visualizations
+        timepoints_to_show: List of specific timepoint indices to visualize (None = auto-select)
+        vmin: Minimum value for colormap (None = auto)
+        vmax: Maximum value for colormap (None = auto)
+        cmap: Colormap to use
+    """
+    save_path = Path(save_dir)
+    save_path.mkdir(exist_ok=True, parents=True)
+
+    n_timepoints = len(attention_matrices)
+    n_genes = attention_matrices[0].shape[0]
+
+    # Auto-select timepoints to show if not specified
+    if timepoints_to_show is None:
+        n_show = min(9, n_timepoints)
+        timepoints_to_show = np.linspace(0, n_timepoints-1, n_show, dtype=int)
+
+    # Determine global min/max for consistent color scale across timepoints
+    if vmin is None or vmax is None:
+        all_values = torch.cat([am.flatten() for am in attention_matrices])
+        if vmin is None:
+            vmin = all_values.min().item()
+        if vmax is None:
+            vmax = all_values.max().item()
+
+    # Create grid of heatmaps
+    rows = int(np.ceil(np.sqrt(len(timepoints_to_show))))
+    cols = int(np.ceil(len(timepoints_to_show) / rows))
+    
+    fig, axes = plt.subplots(rows, cols, figsize=(5*cols, 4.5*rows))
+    if len(timepoints_to_show) == 1:
+        axes = np.array([axes])
+    axes = axes.flatten()
+
+    for idx, t in enumerate(timepoints_to_show):
+        if idx >= len(axes):
+            break
+
+        ax = axes[idx]
+        
+        # Convert tensor to numpy
+        attn_matrix = attention_matrices[t].numpy()
+        
+        # Create heatmap
+        im = ax.imshow(attn_matrix, cmap=cmap, aspect='auto', vmin=vmin, vmax=vmax)
+        
+        ax.set_title(f'Timepoint {t}', fontsize=12)
+        ax.set_xlabel('Target Gene', fontsize=10)
+        ax.set_ylabel('Source Gene', fontsize=10)
+        
+        # Add gene names if available and not too many
+        if gene_names is not None and n_genes <= 20:
+            ax.set_xticks(range(n_genes))
+            ax.set_yticks(range(n_genes))
+            ax.set_xticklabels(gene_names, rotation=90, fontsize=8)
+            ax.set_yticklabels(gene_names, fontsize=8)
+        
+        # Add colorbar for each subplot
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    # Hide unused subplots
+    for idx in range(len(timepoints_to_show), len(axes)):
+        axes[idx].axis('off')
+
+    plt.tight_layout()
+    plt.savefig(save_path / 'attention_matrices_heatmaps.png', dpi=150, bbox_inches='tight')
+    plt.close()
+
+    print(f"Saved attention matrices heatmap to {save_dir}/attention_matrices_heatmaps.png")
+
+    # Create individual high-resolution heatmaps for each selected timepoint
+    for t in timepoints_to_show:
+        fig, ax = plt.subplots(figsize=(12, 10))
+        
+        attn_matrix = attention_matrices[t].numpy()
+        
+        im = ax.imshow(attn_matrix, cmap=cmap, aspect='auto', vmin=vmin, vmax=vmax)
+        
+        ax.set_title(f'Attention Matrix at Timepoint {t}', fontsize=16)
+        ax.set_xlabel('Target Gene', fontsize=14)
+        ax.set_ylabel('Source Gene', fontsize=14)
+        
+        # Add gene names if available
+        if gene_names is not None:
+            ax.set_xticks(range(n_genes))
+            ax.set_yticks(range(n_genes))
+            ax.set_xticklabels(gene_names, rotation=90, fontsize=10)
+            ax.set_yticklabels(gene_names, fontsize=10)
+        
+        # Add colorbar
+        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label('Attention Weight', fontsize=12)
+        
+        # Add grid for better readability
+        ax.set_xticks(np.arange(n_genes) - 0.5, minor=True)
+        ax.set_yticks(np.arange(n_genes) - 0.5, minor=True)
+        ax.grid(which='minor', color='gray', linestyle='-', linewidth=0.5, alpha=0.2)
+        
+        plt.tight_layout()
+        plt.savefig(save_path / f'attention_matrix_t{t}.png', dpi=200, bbox_inches='tight')
+        plt.close()
+
+    print(f"Saved {len(timepoints_to_show)} individual attention matrix heatmaps")
+
+    # Create an animation-style summary showing attention evolution
+    fig, ax = plt.subplots(figsize=(14, 6))
+    
+    # Calculate average attention weights over time
+    avg_attention_over_time = np.array([am.numpy().mean() for am in attention_matrices])
+    max_attention_over_time = np.array([am.numpy().max() for am in attention_matrices])
+    
+    ax.plot(avg_attention_over_time, 'b-', linewidth=2, label='Average Attention')
+    ax.plot(max_attention_over_time, 'r-', linewidth=2, label='Max Attention')
+    ax.set_xlabel('Timepoint', fontsize=12)
+    ax.set_ylabel('Attention Weight', fontsize=12)
+    ax.set_title('Attention Weights Evolution Over Time', fontsize=14)
+    ax.legend(fontsize=11)
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(save_path / 'attention_evolution.png', dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print(f"Saved attention evolution plot to {save_dir}/attention_evolution.png")
 
 def main():
     # Device configuration
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
 
-    # Configuration
-    model_path = "toy_best_model_ritini.pt"
-    node_features_path = "data/toy_data/all_node_features.npy"
-    graphs_data_path =  "data/toy_data/all_graphs.pkl"
-    save_dir = "visualizations_toy"
-    trajectory_idx = 0
+    model_path = "best_model.pt"
+    save_dir = "visualizations_natalia"
+    timepoints_to_show = [0, 10, 20, 30, 40,50,60,80,90]  # None = all timepoints, or specify list like [0, 2, 4, 6, 8]
     attention_threshold = 0.001
-    timepoints_to_show = None  # None = all timepoints, or specify list like [0, 2, 4, 6, 8]
-    gene_names = None  # Optional: provide list of gene names
 
-    # Load saved toy data
-    print(f"\nLoading toy data from {node_features_path}...")
-    all_node_features = np.load(node_features_path, allow_pickle=True)
+    # Data parameters
+    trajectory_file = 'data/trajectory_1_natalia/traj_data.npy' 
+    gene_names_file='data/trajectory_1_natalia/gene_names.txt'
+    granger_p_val_file = 'data/cell_cycle_RG/granger_RGtoIPCtoNeuron_p.csv'
+    granger_coef_file = 'data/cell_cycle_RG/granger_RGtoIPCtoNeuron_c.csv'
 
-    with open(os.path.join(graphs_data_path), 'rb') as f:
-        all_graphs = pickle.load(f)
-    
-    # Select a single trajectory
-    node_features = torch.tensor(all_node_features[trajectory_idx], dtype=torch.float32)
-    train_graphs = all_graphs[trajectory_idx]
 
-    n_genes = node_features.shape[1]
-    n_timepoints = node_features.shape[0]
+    # Training parameters
+    n_heads = 1
+    feat_dropout = 0.1
+    attn_dropout = 0.1
+    activation_func = nn.Tanh()
+    residual = False
+    negative_slope = 0.2
 
-    print(f"Loaded trajectory {trajectory_idx}:")
-    print(f"  Timepoints: {n_timepoints}")
-    print(f"  Genes: {n_genes}")
+
+    # Load real trajectory data
+    print("Loading trajectory data...")
+
+    data = process_single_trajectory_data(
+        trajectory_file= trajectory_file,
+        granger_pval_file= granger_p_val_file,
+        granger_coef_file= granger_coef_file,
+        gene_names_file= gene_names_file
+    )
+
+
+    trajectories = data['trajectories']
+    gene_names = data['gene_names']
+    prior_adjacency = data['prior_adjacency']
+    n_genes = data['n_genes']
+
+    # Extract node features
+    node_features = torch.tensor(trajectories[:, 0, :], dtype=torch.float32)
+
+    print(f"Data loaded:")
     print(f"  Node features shape: {node_features.shape}")
+    print(f"  Number of genes: {n_genes}")
+    print(f"  Gene names: {gene_names[:5]}..." if gene_names is not None else "  No gene names")
 
-    prior_graph = train_graphs[0]
-
-    # Convert prior graph to adjacency matrix
-    prior_adjacency = torch.zeros(n_genes, n_genes)
-    for edge in prior_graph.edges():
-        prior_adjacency[edge[0], edge[1]] = 1
-        prior_adjacency[edge[1], edge[0]] = 1  # Symmetric
-
-    print(f"\nPrior graph (t=0): {len(prior_graph.nodes())} nodes, {len(prior_graph.edges())} edges")
-    print(f"Prior adjacency shape: {prior_adjacency.shape}\n")
     # Load trained model
     # Training parameters
 
@@ -510,7 +543,7 @@ def main():
 
     # Infer graphs at all timepoints
     print("\nInferring graphs at all timepoints...")
-    graphs, attention_matrices, predictions, targets = infer_graphs_at_timepoints(
+    attention_matrices, predictions, targets = infer_graphs_at_timepoints(
         model,
         node_features,
         prior_adjacency,
@@ -518,19 +551,7 @@ def main():
         threshold=attention_threshold
     )
 
-    print(f"Inferred {len(graphs)} graphs")
-    print(f"Average edges per graph: {np.mean([len(G.edges()) for G in graphs]):.1f}")
-
-    # Visualize graphs
-    print("\nCreating graph visualizations...")
-
-    visualize_graphs_at_timepoints(
-        graphs,
-        attention_matrices,
-        gene_names=gene_names,
-        save_dir=save_dir,
-        timepoints_to_show=timepoints_to_show
-    )
+    print(f"Inferred {len(attention_matrices)} attention_matrices")
 
     # Visualize predictions
     if predictions is not None and targets is not None:
@@ -553,6 +574,16 @@ def main():
             save_dir=save_dir,
             genes_to_show=None  # Set to None for all genes, or specify list like [0, 1, 2, 5]
         )
+        print("\nCreating attention matrix visualizations...")
+
+    # visualize_attention_heatmaps(
+    #     attention_matrices,
+    #     gene_names=gene_names,
+    #     save_dir=save_dir,
+    #     timepoints_to_show=timepoints_to_show,
+    #     cmap='viridis'  # Try 'hot', 'plasma', 'coolwarm' for different color schemes
+    # )
+
     print("\nVisualization complete!")
 
 

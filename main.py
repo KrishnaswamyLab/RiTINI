@@ -6,7 +6,7 @@ import json
 
 import networkx as nx
 from tqdm import tqdm
-from ritini.data.trajectory_loader import prepare_trajectories_data
+from ritini.data.trajectory_loader import prepare_trajectories_data, process_single_trajectory_data
 from ritini.models.gat import TemporalGAT
 from ritini.models.gatConvwithAttention import GATConvWithAttention
 from ritini.data.temporal_graph import TemporalGraphDataset
@@ -20,10 +20,12 @@ def main():
     print(f"Using device: {device}")
 
     # Data parameters
-    trajectory_file = 'data/trajectories/traj_data.pkl' 
-    prior_graph_file='data/trajectories/cancer_granger_prior_graph_nx_20.pkl'
-    gene_names_file='data/trajectories/gene_names.txt'
-    n_top_genes = 20  # Number of genes from prior graph to use
+    trajectory_file = 'data/trajectory_1_natalia/traj_data.npy' 
+    gene_names_file='data/trajectory_1_natalia/gene_names.txt'
+    granger_p_val_file = 'data/cell_cycle_RG/granger_RGtoIPCtoNeuron_p.csv'
+    granger_coef_file = 'data/cell_cycle_RG/granger_RGtoIPCtoNeuron_c.csv'
+
+    # n_top_genes = 20  # Number of genes from prior graph to use
     batch_size = 4
     time_window = 5  # Length of time_window, set to None to use all timepoints
 
@@ -44,12 +46,11 @@ def main():
     # Load real trajectory data
     print("Loading trajectory data...")
 
-    data = prepare_trajectories_data(
-        trajectory_file=trajectory_file,
-        n_top_genes=n_top_genes,
-        prior_graph_file=prior_graph_file,
-        gene_names_file=gene_names_file,
-        use_mean_trajectory=True
+    data = process_single_trajectory_data(
+        trajectory_file= trajectory_file,
+        granger_pval_file= granger_p_val_file,
+        granger_coef_file= granger_coef_file,
+        gene_names_file= gene_names_file
     )
 
 
