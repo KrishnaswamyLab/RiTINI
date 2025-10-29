@@ -2632,7 +2632,7 @@ wheels = [
 ]
 
 [[package]]
-name = "ritini-new"
+name = "ritini"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

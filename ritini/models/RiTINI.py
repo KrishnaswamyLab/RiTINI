@@ -8,11 +8,12 @@ from ritini.models.ode import ODEBlock
 
 class RiTINI(nn.Module):
     """
-    Complete Graph Neural ODE model using PyTorch Geometric.
+    RiTINI Graph Neural ODE model using PyTorch Geometric.
     """
 
     def __init__(self, in_features, out_features, n_heads=1, 
-                 feat_dropout=0.0, attn_dropout=0.0, negative_slope = 0.2, activation=nn.Tanh(), residual=False, bias = True,
+                 feat_dropout=0.0, attn_dropout=0.0, negative_slope = 0.2,
+                 activation=nn.Tanh(), residual=False, bias = True,
                  ode_method='rk4', atol=1e-3, rtol=1e-4, adjoint=False,
                  device='cpu'):
         """
@@ -34,10 +35,11 @@ class RiTINI(nn.Module):
         
         self.in_features = in_features
         self.out_features = out_features
+
         self.device = device
         
-        # Build the model
-        self.gde = self._build_model(
+        # Build the graph ode model
+        self.graph_ode = self._build_model(
             in_features, out_features, n_heads, feat_dropout, attn_dropout,negative_slope, activation, residual,bias,
             ode_method, atol, rtol, adjoint
         )
@@ -68,7 +70,7 @@ class RiTINI(nn.Module):
         )
         
         # Create ODE block
-        gde = ODEBlock(
+        graph_ode = ODEBlock(
             func=gdefunc,
             method=ode_method,
             atol=atol,
@@ -76,31 +78,32 @@ class RiTINI(nn.Module):
             adjoint=adjoint
         ).to(self.device)
         
-        return gde
+        return graph_ode
         
     
     def forward(self, x,edge_index):
         """
+        TODO: Correct the time window pass. It is not clear what is the shape of X here.
         Args:
             x: Node features, shape (num_nodes, in_features)
         Returns:
             out: Node features after ODE integration, shape (num_nodes, out_features * n_heads)
         """
-        self.gde.func.edge_index = edge_index # We need to pass edge_index
+        self.graph_ode.func.edge_index = edge_index # We need to pass edge_index
         
         # Forward through ODE block (only passes x)
-        out = self.gde(x)
+        out = self.graph_ode(x)
 
         # Return features and attention information the attentio_output contains (edge_index, attention_weights)
-        return out, self.gde.func.attention_output
+        return out, self.graph_ode.func.attention_output
 
     def get_nfe(self):
         """Get number of function evaluations (computational cost indicator)."""
-        return self.gde.func.nfe
+        return self.graph_ode.func.nfe
     
     def reset_nfe(self):
         """Reset function evaluation counter."""
-        self.gde.func.nfe = 0
+        self.graph_ode.func.nfe = 0
 
 
 # Example usage

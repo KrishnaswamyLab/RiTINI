@@ -34,6 +34,7 @@ class GDEFunc(nn.Module):
         self.nfe += 1
         
         # Pass through GNN with edge_index
+        # TODO: output should be dx_dt
         out = self.gnn(x, self.edge_index)
         
         # Handle attention outputs if GNN returns tuple (e.g., GAT)

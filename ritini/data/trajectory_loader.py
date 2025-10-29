@@ -46,7 +46,8 @@ def process_single_trajectory_data(
     # Load gene names
     gene_names = np.loadtxt(gene_names_file, dtype=str)
     
-    # Load Granger causality results
+    # TODO: Organize Granger processing 
+    #  Load Granger causality results
     pval_df = pd.read_csv(granger_pval_file, index_col=0)
     coef_df = pd.read_csv(granger_coef_file, index_col=0)
     
@@ -57,49 +58,59 @@ def process_single_trajectory_data(
     signed_score_df.columns = signed_score_df.columns.str.strip('_y')
     signed_score_df.index = signed_score_df.index.str.strip('_x')
     
-    # Create prior graph from signed_score_df
-    prior_graph = nx.DiGraph()
-    
-    # Add all genes as nodes
-    for gene in gene_names:
-        prior_graph.add_node(gene)
-    
-    # Add edges based on signed_score_df
-    for source in signed_score_df.index:
-        for target in signed_score_df.columns:
-            score = signed_score_df.loc[source, target]
-            if not np.isnan(score) and score != 0:
-                prior_graph.add_edge(source, target, weight=score)
-    
     n_timepoints, n_trajectories , n_genes = trajectories.shape
 
     # Convert trajectories to node features tensor
+    # TODO: All trajectories get squeezed as a single one
+    
     node_features = torch.tensor(
         trajectories.squeeze(1),
         dtype=torch.float32
     )  # Shape: (n_timepoints, n_genes)
 
-    # Convert prior graph to adjacency matrix
+    # Convert signed_score_df to adjacency matrix
     # Map gene names to indices
     gene_to_idx = {gene: idx for idx, gene in enumerate(gene_names)}
-    
-    prior_adjacency = torch.zeros(n_genes, n_genes)
-    for edge in prior_graph.edges():
-        if edge[0] in gene_to_idx and edge[1] in gene_to_idx:
-            i = gene_to_idx[edge[0]]
-            j = gene_to_idx[edge[1]]
-            prior_adjacency[i, j] = 1
-            prior_adjacency[j, i] = 1  # Symmetric
+
+    # Get indices of genes that appear in signed_score_df
+    signed_genes = list(signed_score_df.index)
+    signed_indices = [gene_to_idx[gene] for gene in signed_genes if gene in gene_to_idx]
+
+    # Convert signed_score_df to numpy array for easier indexing
+    signed_array = signed_score_df.values  # Shape: (n_signed_genes, n_genes)
+
+    # Create the full n_genes x n_genes matrix initialized with zeros
+    prior_adjacency = np.zeros((n_genes, n_genes))
+
+    # Place the connections from signed genes to all genes
+    for i, gene_idx in enumerate(signed_indices):
+        for j, target_gene in enumerate(signed_score_df.columns):
+            if target_gene in gene_to_idx:
+                target_idx = gene_to_idx[target_gene]
+                score = signed_array[i, j]
+                if not np.isnan(score) and score != 0:
+                    prior_adjacency[gene_idx, target_idx] = 1
+
+    # Make it symmetric - for each connection from gene i to gene j, add connection from j to i
+    for i, gene_idx in enumerate(signed_indices):
+        for j, target_gene in enumerate(signed_score_df.columns):
+            if target_gene in gene_to_idx:
+                target_idx = gene_to_idx[target_gene]
+                score = signed_array[i, j]
+                if not np.isnan(score) and score != 0:
+                    prior_adjacency[target_idx, gene_idx] = 1
+
+    # Convert to torch tensor
+    prior_adjacency = torch.tensor(prior_adjacency, dtype=torch.float32)
 
     return {
-        'trajectories': trajectories,
-        'prior_adjacency': prior_adjacency,
-        'prior_graph': prior_graph,
-        'gene_names': gene_names,
-        'n_genes': n_genes,
-        'n_timepoints': n_timepoints,
-        'node_features': node_features,
-        'signed_score_df': signed_score_df
+            'trajectories': trajectories,
+            'prior_adjacency': prior_adjacency,
+            'gene_names': gene_names,
+            'n_genes': n_genes,
+            'n_timepoints': n_timepoints,
+            'node_features': node_features,
+            'signed_score_df': signed_score_df
     }
 
 

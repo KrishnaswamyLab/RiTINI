@@ -41,6 +41,7 @@ class ODEBlock(nn.Module):
         Returns:
             Final state at t=1
         """
+        #TODO: Verify if we should add linspace for the solver here.
         if t is None:
             t = torch.tensor([0, 1], dtype=x.dtype, device=x.device)
         

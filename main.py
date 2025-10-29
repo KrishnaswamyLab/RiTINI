@@ -22,6 +22,7 @@ def main():
     # Data parameters
     trajectory_file = 'data/trajectory_1_natalia/traj_data.npy' 
     gene_names_file='data/trajectory_1_natalia/gene_names.txt'
+    
     granger_p_val_file = 'data/cell_cycle_RG/granger_RGtoIPCtoNeuron_p.csv'
     granger_coef_file = 'data/cell_cycle_RG/granger_RGtoIPCtoNeuron_c.csv'
 
@@ -38,6 +39,9 @@ def main():
     activation_func = nn.Tanh()
     residual = False
     negative_slope = 0.2
+
+    # Loss parameters
+    graph_reg_weight = 0.1
 
     # Scheduler configs
     lr_factor = 0.5
@@ -56,12 +60,12 @@ def main():
 
     trajectories = data['trajectories']  # Shape: (n_timepoints, n_trajectories=1, n_genes)
     gene_names = data['gene_names']
-    prior_adjacency = data['prior_adjacency']
-    prior_graph = data['prior_graph']
+    prior_adjacency = data['prior_adjacency'].to(device)
     n_genes = data['n_genes']
     n_timepoints = data['n_timepoints']
 
     # Extract node features (remove trajectory dimension since we use mean)
+    ## Attention here: the selected trajectory is expected to already be a mean of all interest trajectories.
     trajectory_idx = 0
     train_node_features = torch.tensor(trajectories[:, trajectory_idx, :], dtype=torch.float32)  # Shape: (n_timepoints, n_genes)
 
@@ -69,7 +73,6 @@ def main():
     print(f"  Trajectories shape: {trajectories.shape}")
     print(f"  Number of genes: {n_genes}")
     print(f"  Number of timepoints: {n_timepoints}")
-    print(f"  Prior graph: {len(prior_graph.nodes())} nodes, {len(prior_graph.edges())} edges")
     print(f"  Prior adjacency shape: {prior_adjacency.shape}\n")
     print(f"Train node features shape: {train_node_features.shape}")
 
@@ -130,13 +133,21 @@ def main():
     training_history = []
 
     for epoch in tqdm(range(n_epochs)):
-        epoch_loss = train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency)
-        training_history.append(epoch_loss)
+        epoch_loss, epoch_feature_loss, epoch_graph_loss = train_epoch(
+            model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency,graph_reg_weight
+        )
+        
+        # Store all loss components
+        training_history.append({
+            'total_loss': epoch_loss,
+            'feature_loss': epoch_feature_loss,
+            'graph_loss': epoch_graph_loss
+        })
 
-        # Update scheduler
+        # Update scheduler (use total loss)
         scheduler.step(epoch_loss)
 
-        # Save best model
+        # Save best model (based on total loss)
         if epoch_loss < best_loss:
             best_loss = epoch_loss
             torch.save({
@@ -144,18 +155,24 @@ def main():
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': best_loss,
+                'feature_loss': epoch_feature_loss,
+                'graph_loss': epoch_graph_loss,
             }, 'best_model.pt')
 
-        # Print progress
+        # Print progress with all loss components
         if (epoch + 1) % 10 == 0:
-            print(f"Epoch [{epoch+1}/{n_epochs}], Loss: {epoch_loss:.6f}, Best Loss: {best_loss:.6f}")
+            print(f"Epoch [{epoch+1}/{n_epochs}], "
+                f"Total Loss: {epoch_loss:.6f}, "
+                f"Feature Loss: {epoch_feature_loss:.6f}, "
+                f"Graph Loss: {epoch_graph_loss:.6f}, "
+                f"Best Loss: {best_loss:.6f}")
 
     print(f"\nTraining completed!")
-    print(f"Best loss: {best_loss:.6f}")
+    print(f"Best total loss: {best_loss:.6f}")
 
-    # Save training history
+    # Save training history with all metrics
     with open('training_history.json', 'w') as f:
-        json.dump({'losses': training_history}, f)
+        json.dump({'history': training_history}, f, indent=2)
 
     print(f"Training history saved to training_history.json")
     print(f"Best model saved to best_model.pt")
