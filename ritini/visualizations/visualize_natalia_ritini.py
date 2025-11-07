@@ -19,7 +19,7 @@ def infer_graphs_at_timepoints(
     Infer graphs at each timepoint using the trained model.
 
     Args:
-        model: Trained TemporalGAT model
+        model: Trained RiTINI model
         node_features: Node features (n_timepoints, n_genes)
         prior_adjacency: Prior adjacency matrix (n_genes, n_genes)
         device: Device to run inference on
@@ -111,7 +111,8 @@ def visualize_gene_expression_trajectories(
         timepoints = np.arange(n_timepoints)
 
         # Predicted values (starts from timepoint 1, predicting timepoint 2 onwards)
-        pred_expression = predictions[:, gene_idx].numpy()
+        # pred_expression = predictions[:, gene_idx].numpy()
+        pred_expression = np.array(predictions)[:, gene_idx]
         pred_timepoints = np.arange(1, n_timepoints)
 
         # Plot actual expression
@@ -151,175 +152,80 @@ def visualize_gene_expression_trajectories(
 
     print(f"Saved {len(genes_to_show)} gene trajectory plots to {save_dir}/")
 
-    # Create overview plot with multiple genes
-    n_show = min(9, len(genes_to_show))
-    selected_genes = list(genes_to_show)[:n_show] if len(genes_to_show) <= n_show else \
-                     [list(genes_to_show)[i] for i in np.linspace(0, len(genes_to_show)-1, n_show, dtype=int)]
+    #### PREDICTIONS HEATMAPS
 
-    rows = int(np.ceil(np.sqrt(n_show)))
-    cols = int(np.ceil(n_show / rows))
-    
-    fig, axes = plt.subplots(rows, cols, figsize=(5*cols, 4*rows))
-    if n_show == 1:
-        axes = np.array([axes])
-    axes = axes.flatten()
+    # Create heatmaps for target, predicted, and error values
+    n_show = min(len(genes_to_show), len(genes_to_show))  # Show all genes or limit as needed
+    selected_genes = list(genes_to_show)[:n_show]
+
+    # Prepare data matrices
+    n_genes = len(selected_genes)
+    n_timepoints_pred = n_timepoints - 1
+
+    # Matrix for actual expression (all timepoints)
+    actual_matrix = np.zeros((n_genes, n_timepoints))
+    # Matrix for predicted expression (excluding first timepoint)
+    pred_matrix = np.zeros((n_genes, n_timepoints_pred))
+    # Matrix for errors
+    error_matrix = np.zeros((n_genes, n_timepoints_pred))
+
+    # Gene names for y-axis
+    gene_labels = []
 
     for idx, gene_idx in enumerate(selected_genes):
-        if idx >= len(axes):
-            break
-
-        ax = axes[idx]
-
-        # Actual expression
-        actual_expression = node_features[:, gene_idx].numpy()
-        timepoints = np.arange(n_timepoints)
-
-        # Predicted expression
-        pred_expression = predictions[:, gene_idx].numpy()
-        pred_timepoints = np.arange(1, n_timepoints)
-
-        ax.plot(timepoints, actual_expression, 'b-o', linewidth=2, 
-                markersize=6, label='Actual', alpha=0.7)
-        ax.plot(pred_timepoints, pred_expression, 'r--s', linewidth=2, 
-                markersize=4, label='Predicted', alpha=0.7)
-
-        # Calculate error metrics
-        gene_errors = pred_expression - actual_expression[1:]
-        gene_mse = np.mean(gene_errors ** 2)
-
+        # Actual expression for all timepoints
+        actual_matrix[idx, :] = node_features[:, gene_idx].numpy()
+        
+        # Predicted expression (starts from timepoint 1)
+        pred_matrix[idx, :] = np.array(predictions)[:, gene_idx]
+        
+        # Error (predicted - actual for corresponding timepoints)
+        error_matrix[idx, :] = pred_matrix[idx, :] - actual_matrix[idx, 1:]
+        
+        # Gene label
         gene_name = gene_names[gene_idx] if gene_names is not None else f'Gene {gene_idx}'
-        ax.set_title(f'{gene_name} (MSE: {gene_mse:.3f})', fontsize=10)
-        ax.set_xlabel('Timepoint', fontsize=9)
-        ax.set_ylabel('Expression', fontsize=9)
-        ax.legend(fontsize=8)
-        ax.grid(True, alpha=0.3)
+        gene_labels.append(gene_name)
 
-    # Hide unused subplots
-    for idx in range(len(selected_genes), len(axes)):
-        axes[idx].axis('off')
+    # Create figure with three heatmaps
+    fig, axes = plt.subplots(1, 3, figsize=(18, max(6, n_genes * 0.3)))
 
-    plt.tight_layout()
-    plt.savefig(save_path / 'gene_trajectories_overview.png', dpi=150, bbox_inches='tight')
-    plt.close()
+    # Heatmap 1: Actual expression (all timepoints)
+    im1 = axes[0].imshow(actual_matrix, aspect='auto', cmap='viridis', interpolation='nearest')
+    axes[0].set_title('Target Expression', fontsize=14, fontweight='bold')
+    axes[0].set_xlabel('Timepoint', fontsize=12)
+    axes[0].set_ylabel('Gene', fontsize=12)
+    axes[0].set_yticks(range(n_genes))
+    axes[0].set_yticklabels(gene_labels, fontsize=8)
+    axes[0].set_xticks(range(n_timepoints))
+    axes[0].set_xticklabels(range(n_timepoints))
+    plt.colorbar(im1, ax=axes[0], label='Expression Level')
 
-    print(f"Saved gene trajectories overview to {save_dir}/gene_trajectories_overview.png")
+    # Heatmap 2: Predicted expression (timepoints 1 onwards)
+    im2 = axes[1].imshow(pred_matrix, aspect='auto', cmap='viridis', interpolation='nearest')
+    axes[1].set_title('Predicted Expression', fontsize=14, fontweight='bold')
+    axes[1].set_xlabel('Timepoint', fontsize=12)
+    axes[1].set_ylabel('Gene', fontsize=12)
+    axes[1].set_yticks(range(n_genes))
+    axes[1].set_yticklabels(gene_labels, fontsize=8)
+    axes[1].set_xticks(range(n_timepoints_pred))
+    axes[1].set_xticklabels(range(1, n_timepoints))
+    plt.colorbar(im2, ax=axes[1], label='Expression Level')
 
-
-def visualize_predictions(
-    predictions,
-    targets,
-    gene_names=None,
-    save_dir="visualizations",
-    timepoints_to_show=None
-):
-    """
-    Visualize predicted vs actual next timepoint values.
-
-    Args:
-        predictions: List of predicted tensors or tensor (n_timepoints-1, n_genes)
-        targets: List of target tensors or tensor (n_timepoints-1, n_genes)
-        gene_names: Optional list of gene names
-        save_dir: Directory to save visualizations
-        timepoints_to_show: List of specific timepoint indices to visualize
-    """
-    save_path = Path(save_dir)
-    save_path.mkdir(exist_ok=True, parents=True)
-
-    # Convert lists to tensors if needed
-    if isinstance(predictions, list):
-        predictions = torch.stack(predictions)
-    if isinstance(targets, list):
-        targets = torch.stack(targets)
-
-    n_timepoints = predictions.shape[0]
-    n_genes = predictions.shape[1]
-
-    # Compute errors
-    errors = (predictions - targets).numpy()
-    mse_per_timepoint = (errors ** 2).mean(axis=1)
-    mae_per_timepoint = np.abs(errors).mean(axis=1)
-
-    # Plot 1: Error metrics over time
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
-
-    ax1.plot(mse_per_timepoint, 'b-', linewidth=2, label='MSE')
-    ax1.set_xlabel('Timepoint')
-    ax1.set_ylabel('Mean Squared Error')
-    ax1.set_title('Prediction MSE Over Time')
-    ax1.grid(True, alpha=0.3)
-    ax1.legend()
-
-    ax2.plot(mae_per_timepoint, 'r-', linewidth=2, label='MAE')
-    ax2.set_xlabel('Timepoint')
-    ax2.set_ylabel('Mean Absolute Error')
-    ax2.set_title('Prediction MAE Over Time')
-    ax2.grid(True, alpha=0.3)
-    ax2.legend()
+    # Heatmap 3: Prediction errors
+    im3 = axes[2].imshow(error_matrix, aspect='auto', cmap='RdBu_r', interpolation='nearest',
+                        vmin=-np.abs(error_matrix).max(), vmax=np.abs(error_matrix).max())
+    axes[2].set_title('Prediction Error (Predicted - Target)', fontsize=14, fontweight='bold')
+    axes[2].set_xlabel('Timepoint', fontsize=12)
+    axes[2].set_ylabel('Gene', fontsize=12)
+    axes[2].set_yticks(range(n_genes))
+    axes[2].set_yticklabels(gene_labels, fontsize=8)
+    axes[2].set_xticks(range(n_timepoints_pred))
+    axes[2].set_xticklabels(range(1, n_timepoints))
+    plt.colorbar(im3, ax=axes[2], label='Error')
 
     plt.tight_layout()
-    plt.savefig(save_path / 'prediction_errors_over_time.png', dpi=150, bbox_inches='tight')
+    plt.savefig(save_path / 'gene_expression_heatmaps.png', dpi=150, bbox_inches='tight')
     plt.close()
-
-    # Plot 2: Predicted vs Actual scatter plots for selected timepoints
-    if timepoints_to_show is None:
-        n_show = min(6, n_timepoints)
-        timepoints_to_show = np.linspace(0, n_timepoints-1, n_show, dtype=int)
-
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    axes = axes.flatten()
-
-    for idx, t in enumerate(timepoints_to_show):
-        if idx >= len(axes):
-            break
-
-        ax = axes[idx]
-        pred_t = predictions[t].numpy()
-        target_t = targets[t].numpy()
-
-        ax.scatter(target_t, pred_t, alpha=0.6, s=50)
-
-        # Add diagonal line (perfect prediction)
-        min_val = min(target_t.min(), pred_t.min())
-        max_val = max(target_t.max(), pred_t.max())
-        ax.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, label='Perfect prediction')
-
-        ax.set_xlabel('Actual Expression')
-        ax.set_ylabel('Predicted Expression')
-        ax.set_title(f'Timepoint {t} (MSE: {mse_per_timepoint[t]:.4f})')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.savefig(save_path / 'predicted_vs_actual_scatter.png', dpi=150, bbox_inches='tight')
-    plt.close()
-
-    # Plot 3: Per-gene error heatmap
-    errors_array = errors.T  # (n_genes, n_timepoints)
-
-    fig, ax = plt.subplots(figsize=(14, max(6, n_genes * 0.3)))
-    im = ax.imshow(errors_array, cmap='RdBu_r', aspect='auto', vmin=-np.abs(errors).max(), vmax=np.abs(errors).max())
-
-    ax.set_xlabel('Timepoint')
-    ax.set_ylabel('Gene')
-    ax.set_title('Prediction Errors: Predicted - Actual (per gene, per timepoint)')
-
-    if gene_names is not None and len(gene_names) <= 30:
-        ax.set_yticks(range(n_genes))
-        ax.set_yticklabels(gene_names, fontsize=8)
-
-    plt.colorbar(im, ax=ax, label='Error')
-    plt.tight_layout()
-    plt.savefig(save_path / 'per_gene_errors_heatmap.png', dpi=150, bbox_inches='tight')
-    plt.close()
-
-    # Print statistics
-    print(f"\nPrediction Statistics:")
-    print(f"  Overall MSE: {mse_per_timepoint.mean():.6f}")
-    print(f"  Overall MAE: {mae_per_timepoint.mean():.6f}")
-    print(f"  Best timepoint MSE: {mse_per_timepoint.min():.6f} at t={mse_per_timepoint.argmin()}")
-    print(f"  Worst timepoint MSE: {mse_per_timepoint.max():.6f} at t={mse_per_timepoint.argmax()}")
-
-    print(f"\nSaved prediction visualizations to {save_dir}/")
 
 def visualize_attention_heatmaps(
     attention_matrices,
@@ -467,9 +373,8 @@ def main():
     print(f"Using device: {device}")
 
     model_path = "best_model.pt"
-    save_dir = "visualizations_natalia"
-    timepoints_to_show = [0, 10, 20, 30, 40,50,60,80,90]  # None = all timepoints, or specify list like [0, 2, 4, 6, 8]
-    attention_threshold = 0.001
+    save_dir = "visualizations_natalia_new"
+
 
     # Data parameters
     trajectory_file = 'data/trajectory_1_natalia/traj_data.npy' 
@@ -500,11 +405,17 @@ def main():
 
     trajectories = data['trajectories']
     gene_names = data['gene_names']
+
     prior_adjacency = data['prior_adjacency']
     n_genes = data['n_genes']
 
     # Extract node features
     node_features = torch.tensor(trajectories[:, 0, :], dtype=torch.float32)
+
+    timepoints_to_show = [0, 24, 49, 74, 99]  # None = all timepoints, or specify list like [0, 2, 4, 6, 8]
+    # genes_to_show =[0,5,10,20,30]
+    genes_to_show = None
+    attention_threshold = 0.01
 
     print(f"Data loaded:")
     print(f"  Node features shape: {node_features.shape}")
@@ -520,6 +431,7 @@ def main():
     activation_func = nn.Tanh()
     residual = False
     negative_slope = 0.2
+
     print(f"\nLoading model from {model_path}...")
     model = RiTINI(
         in_features=1,  # Each node has 1 feature (gene expression)
@@ -556,14 +468,6 @@ def main():
     # Visualize predictions
     if predictions is not None and targets is not None:
         print("\nCreating prediction visualizations...")
-        visualize_predictions(
-            predictions,
-            targets,
-            gene_names=gene_names,
-            save_dir=save_dir,
-            timepoints_to_show=timepoints_to_show
-        )
-
         # Visualize gene expression trajectories
         print("\nCreating gene expression trajectory visualizations...")
         visualize_gene_expression_trajectories(
@@ -572,17 +476,17 @@ def main():
             targets,
             gene_names=gene_names,
             save_dir=save_dir,
-            genes_to_show=None  # Set to None for all genes, or specify list like [0, 1, 2, 5]
+            genes_to_show=genes_to_show  # Set to None for all genes, or specify list like [0, 1, 2, 5]
         )
-        print("\nCreating attention matrix visualizations...")
+    print("\nCreating attention matrix visualizations...")
 
-    # visualize_attention_heatmaps(
-    #     attention_matrices,
-    #     gene_names=gene_names,
-    #     save_dir=save_dir,
-    #     timepoints_to_show=timepoints_to_show,
-    #     cmap='viridis'  # Try 'hot', 'plasma', 'coolwarm' for different color schemes
-    # )
+    visualize_attention_heatmaps(
+        attention_matrices,
+        gene_names=gene_names,
+        save_dir=save_dir,
+        timepoints_to_show=timepoints_to_show,
+        cmap='viridis'  # Try 'hot', 'plasma', 'coolwarm' for different color schemes
+    )
 
     print("\nVisualization complete!")
 
