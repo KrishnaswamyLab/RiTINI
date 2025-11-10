@@ -20,11 +20,11 @@ def main():
     print(f"Using device: {device}")
 
     # Data parameters
-    trajectory_file = 'data/trajectory_1_natalia/traj_data.npy' 
-    gene_names_file='data/trajectory_1_natalia/gene_names.txt'
-    
-    granger_p_val_file = 'data/cell_cycle_RG/granger_RGtoIPCtoNeuron_p.csv'
-    granger_coef_file = 'data/cell_cycle_RG/granger_RGtoIPCtoNeuron_c.csv'
+    trajectory_file = 'data/data/traj_data.npy' 
+    gene_names_file='data/data/gene_names.txt'
+
+    granger_p_val_file = 'data/data/granger_RGtoIPCtoNeuron_p.csv'
+    granger_coef_file = 'data/data/granger_RGtoIPCtoNeuron_c.csv'
 
     # n_top_genes = 20  # Number of genes from prior graph to use
     batch_size = 4
@@ -131,7 +131,7 @@ def main():
     print(f"\nStarting training...")
     best_loss = float('inf')
     training_history = []
-
+    # import pdb; pdb.set_trace()
     for epoch in tqdm(range(n_epochs)):
         epoch_loss, epoch_feature_loss, epoch_graph_loss = train_epoch(
             model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency,graph_reg_weight
