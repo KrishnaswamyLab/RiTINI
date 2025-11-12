@@ -122,7 +122,7 @@ def test_toy_data_ritini():
     training_history = []
 
     for epoch in range(n_epochs):
-        epoch_loss = train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency)
+        epoch_loss, _, _ = train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency)
         training_history.append(epoch_loss)
 
         # Update scheduler
