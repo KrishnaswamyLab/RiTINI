@@ -472,10 +472,11 @@ def main():
     attention_threshold = 0.001
 
     # Data parameters
-    trajectory_file = 'data/trajectory_1_natalia/traj_data.npy' 
-    gene_names_file='data/trajectory_1_natalia/gene_names.txt'
-    granger_p_val_file = 'data/cell_cycle_RG/granger_RGtoIPCtoNeuron_p.csv'
-    granger_coef_file = 'data/cell_cycle_RG/granger_RGtoIPCtoNeuron_c.csv'
+    trajectory_file = 'data/data/traj_data.npy' 
+    gene_names_file='data/data/gene_names.txt'
+
+    granger_p_val_file = 'data/data/granger_RGtoIPCtoNeuron_p.csv'
+    granger_coef_file = 'data/data/granger_RGtoIPCtoNeuron_c.csv'
 
 
     # Training parameters

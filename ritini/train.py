@@ -53,13 +53,7 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
             # model returns (out, {'time_attention': time_attn_weights, 'spatial_attention': spatial_attn})
             time_attn_weights = attn_dict.get('time_attention')
             spatial = attn_dict.get('spatial_attention')
-            edge_index_attention, attn_weights = (None, None)
-            if spatial is not None:
-                # spatial may be a tuple (edge_index_attn, attention_weights)
-                try:
-                    edge_index_attention, attn_weights = spatial
-                except Exception:
-                    edge_index_attention = None
+            edge_index_attention, attn_weights = spatial
 
             # Reshape prediction back to (n_genes,)
             pred_features = pred_features.squeeze(-1)

@@ -104,70 +104,39 @@ class RiTINI(nn.Module):
             out: Node features after ODE integration, shape (num_nodes, out_features * n_heads)
         """
         # If input has a time window, apply time attention l_delta to aggregate
-        time_attn_weights = None
         if x is None:
             raise ValueError("Input x must be provided")
 
-        # import pdb; pdb.set_trace()
-        is_temporal = False
-        input_time = None
-        # import pdb; pdb.set_trace()
         if x.dim() == 2:
             # x here is (T, N)
-            is_temporal = True
             input_time = x.unsqueeze(-1)
         else:
             raise ValueError(f"Unsupported input tensor shape {x.shape}")
 
-        if is_temporal:
-            # Spatial attention (GAT) should be applied per time-slice first, then we apply time-attention
-            T, N, F = input_time.shape
-            # import pdb; pdb.set_trace()
-            # Ensure graph is known for the gnn calls
-            try:
-                self.graph_ode.func.set_graph(edge_index)
-            except Exception:
-                self.graph_ode.func.edge_index = edge_index
+        # Spatial attention (GAT) should be applied per time-slice first, then we apply time-attention
+        T, N, F = input_time.shape
+        # Ensure graph is known for the gnn calls
+        self.graph_ode.func.set_graph(edge_index)
 
-            spatial_outputs = []
-            last_spatial_att = None
-            gnn = self.graph_ode.func.gnn
-            for t in range(T):
-                x_t = input_time[t].to(self.device)
-                out_t = gnn(x_t, edge_index)
-                if isinstance(out_t, tuple):
-                    feat_t, att = out_t
-                    last_spatial_att = att
-                else:
-                    feat_t = out_t
-                    att = None
-                spatial_outputs.append(feat_t)
-
-            # Stack across time (num_timepoints, num_nodes, features)
-            stacked = torch.stack(spatial_outputs, dim=0)
-            # import pdb; pdb.set_trace()
-            # Now apply time attention l_delta over the spatially-aggregated time series
-            x0, time_attn_weights = self.time_attention(stacked)
-            # import pdb; pdb.set_trace()
-            # spatial attentions: use the last computed spatial attention as a proxy
-            spatial_attn = last_spatial_att
-        else:
-            # Single snapshot
-            x0 = x.to(self.device)
-            time_attn_weights = None
-            spatial_attn = None
-
+        spatial_outputs = []
+        last_spatial_att = None
+        gnn = self.graph_ode.func.gnn
+        for t in range(T):
+            x_t = input_time[t].to(self.device)
+            feat_t, att = gnn(x_t, edge_index)
+            spatial_outputs.append(feat_t)
+            last_spatial_att = att
+        # Stack across time (num_timepoints, num_nodes, features)
+        stacked = torch.stack(spatial_outputs, dim=0)
+        # Now apply time attention l_delta over the spatially-aggregated time series
+        x0, time_attn_weights = self.time_attention(stacked)
+        # spatial attentions: use the last computed spatial attention as a proxy
+        spatial_attn = last_spatial_att
         # Pass graph structure to the GDE function
         # prefer set_graph API if present
-        try:
-            self.graph_ode.func.set_graph(edge_index)
-        except Exception:
-            # fallback
-            self.graph_ode.func.edge_index = edge_index
+        self.graph_ode.func.set_graph(edge_index)
 
-        # import pdb; pdb.set_trace()
         # Forward through ODE block (starting from aggregated initial state)
-        # So here it looks like the input is (num_nodes, 1). Is 1 the feature dimension? Is there only one feature per node?
         out = self.graph_ode(x0)
 
         return out, {'time_attention': time_attn_weights, 'spatial_attention': spatial_attn}
