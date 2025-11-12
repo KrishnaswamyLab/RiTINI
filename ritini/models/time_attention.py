@@ -31,12 +31,6 @@ class TimeAttention(nn.Module):
             aggregated: Tensor (number of nodes N, F)
             weights: Tensor (T,) attention weights across time (softmaxed)
         """
-        if x.dim() == 2:
-            x = x.unsqueeze(-1)
-
-        if x.dim() != 3:
-            raise ValueError(f"TimeAttention expects input with 2 or 3 dims, got {x.dim()}")
-
         T, N, F = x.shape
 
         if F != self.in_features:

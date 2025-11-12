@@ -107,11 +107,9 @@ class RiTINI(nn.Module):
         if x is None:
             raise ValueError("Input x must be provided")
 
-        if x.dim() == 2:
-            # x here is (T, N)
-            input_time = x.unsqueeze(-1)
-        else:
-            raise ValueError(f"Unsupported input tensor shape {x.shape}")
+        # x here is (T, N)
+        input_time = x.unsqueeze(-1)
+        
 
         # Spatial attention (GAT) should be applied per time-slice first, then we apply time-attention
         T, N, F = input_time.shape

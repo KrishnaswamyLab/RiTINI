@@ -38,13 +38,11 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
         # We need to start the first edge_index with the prior graph adjacency for t=0
         current_adj = prior_adjacency.to(device)
         prior_adjacency = prior_adjacency.to(device)
-
         for b in range(batch_size):
             seq = node_features[b]  # (time_window, n_genes)
             # input sequence: first T-1 points
             input_seq = seq[:-1]  # (T_in, n_genes)
             target = seq[-1]      # (n_genes,)
-
             # Convert adjacency to edge_index (current graph at this step)
             edge_index = adjacency_to_edge_index(current_adj)
 
