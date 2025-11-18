@@ -1,44 +1,59 @@
-from torch import nn
+import torch
+import torch.nn as nn
 
 class GDEFunc(nn.Module):
-    def __init__(
-        self, 
-        gnn: nn.Module,  # Can be any GNN (GAT, GCN, etc.)
-        augment: bool = False, 
-        augment_size: int = 2
-    ):
-        """General GDE function class. To be passed to an ODEBlock"""
+    """
+    Graph Differential Equation for latent node dynamics:
+        dz/dt = MLP( GNN(z, edge_index) )
+    """
+    def __init__(self, gnn, latent_dim):
+        """
+        gnn: a GNN module mapping (N, latent_dim) -> (N, latent_dim)
+        latent_dim: dimension of latent state per node
+        """
         super().__init__()
         self.gnn = gnn
+        self.latent_dim = latent_dim
         
-        # Number of function calls
+        # small nonlinear MLP to give curvature to the vector field
+        # this is f_theta in the paper
+        self.mlp = nn.Sequential(
+            nn.Linear(latent_dim, 4 * latent_dim),
+            nn.Tanh(),
+            nn.Linear(4 * latent_dim, 4 * latent_dim),
+            nn.Tanh(),
+            nn.Linear(4 * latent_dim, latent_dim),
+        )
+        
+        # number of function evaluations (NFE)
         self.nfe = 0
         
-        # Whether or not to augment input tensor x
-        self.augment = augment
-        
-        # Dimensions of 0s to augment x with (as well as the time vector t)
-        self.augment_size = augment_size
-        
-        # Store edge_index for PyTorch Geometric
+        # will be set by RiTINI before each ODE solve
         self.edge_index = None
         
-        # Optional: store attention weights if using GAT
+        # last attention info (optional)
         self.attention_output = None
     
     def set_graph(self, edge_index):
-        """Set the graph structure (edge_index for PyTorch Geometric)"""
+        """Set edge_index externally before ODE integration."""
         self.edge_index = edge_index
-            
-    def forward(self, t, x):
+    
+    def forward(self, t, z):
+        """
+        t: scalar time (ignored — autonomous ODE)
+        z: (N, latent_dim)
+        returns dz/dt: (N, latent_dim)
+        """
         self.nfe += 1
         
-        # Pass through GNN with edge_index
-        # TODO: output should be dx_dt
-        out = self.gnn(x, self.edge_index)
+        # GNN in latent space
+        out = self.gnn(z, self.edge_index)
         
-        # Handle attention outputs if GNN returns tuple (e.g., GAT)
+        # handle GAT returning (output, (edge_index, attn))
         if isinstance(out, tuple):
             out, self.attention_output = out
         
-        return out
+        # nonlinear mapping to get dz/dt
+        dzdt = self.mlp(out)
+        
+        return dzdt
