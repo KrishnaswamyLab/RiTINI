@@ -6,42 +6,26 @@ from ritini.models.graphDifferentialEquation import GDEFunc
 from ritini.models.ode import ODEBlock
 
 class RiTINI(nn.Module):
-    """
-    RiTINI Graph Neural ODE model using PyTorch Geometric.
-    """
-
-    def __init__(self, in_features, out_features, latent_dim=2, n_heads=1, 
-                 feat_dropout=0.0, attn_dropout=0.0, negative_slope=0.2,
+    def __init__(self, in_features, out_features, latent_dim=16, history_length=5,
+                 n_heads=1, feat_dropout=0.0, attn_dropout=0.0, negative_slope=0.2,
                  activation=nn.Tanh(), residual=False, bias=True,
                  ode_method='rk4', atol=1e-3, rtol=1e-4, adjoint=False,
                  device='cpu'):
-        """
-        Args:
-            in_features: Input feature dimension
-            out_features: Output feature dimension
-            latent_dim: Latent ODE state dimension
-            n_heads: Number of attention heads
-            feat_dropout: Feature dropout rate
-            attn_dropout: Attention dropout rate
-            negative_slope: LeakyReLU negative slope
-            activation: Activation function
-            residual: Whether to use residual connections
-            bias: Whether to use bias
-            ode_method: ODE solver method
-            atol: Absolute tolerance
-            rtol: Relative tolerance
-            adjoint: Use adjoint method for backprop
-            device: Device to run on
-        """
         super(RiTINI, self).__init__()
         
         self.in_features = in_features
         self.out_features = out_features
         self.latent_dim = latent_dim
+        self.history_length = history_length
         self.device = device
         
-        # Projection: input features -> latent ODE state
-        self.projection = nn.Linear(in_features, latent_dim).to(device)
+        # History encoder: LSTM to process past trajectory per node
+        self.history_encoder = nn.LSTM(
+            input_size=in_features,
+            hidden_size=latent_dim,
+            num_layers=1,
+            batch_first=True
+        ).to(device)
         
         # Readout: latent ODE state -> output features
         self.readout = nn.Sequential(
@@ -92,25 +76,27 @@ class RiTINI(nn.Module):
         
         return graph_ode
     
-    def forward(self, x, edge_index, t_eval):
+    def forward(self, x_history, edge_index, t_eval):
         """
         Args:
-            x: Node features, shape (num_nodes, in_features)
+            x_history: Historical trajectory, shape (num_nodes, history_length, in_features)
             edge_index: Graph connectivity
             t_eval: Time points to evaluate, shape (num_steps,)
         Returns:
             x_traj: Trajectory of predictions, shape (num_steps, num_nodes, out_features)
             attention_output: Attention weights from GAT
         """
-        x = x.to(self.device)
+        x_history = x_history.to(self.device)
         edge_index = edge_index.to(self.device)
         t_eval = t_eval.to(self.device)
         
         # Set graph structure
         self.graph_ode.func.set_graph(edge_index)
         
-        # Project to latent space
-        z0 = self.projection(x)  # (N, latent_dim)
+        # Encode history with LSTM per node
+        # x_history: (N, H, 1) where N=nodes, H=history_length
+        _, (h_n, _) = self.history_encoder(x_history)  # h_n: (1, N, latent_dim)
+        z0 = h_n.squeeze(0)  # (N, latent_dim) - initial latent state from history
         
         # Integrate ODE in latent space
         z_traj = self.graph_ode(z0, t_eval)  # (T, N, latent_dim)
