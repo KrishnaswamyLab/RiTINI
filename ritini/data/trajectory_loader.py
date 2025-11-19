@@ -117,7 +117,7 @@ def process_single_trajectory_data(
 def prepare_trajectories_data(
     trajectory_file: str,
     n_top_genes: int,
-    prior_graph_file: str,
+    # prior_graph_file: str,
     gene_names_file: str,
     use_mean_trajectory: bool = True
 ) -> Dict[str, any]:
@@ -141,15 +141,13 @@ def prepare_trajectories_data(
     """
     # Load trajectory data from file
     trajectory_path = Path(trajectory_file)
-    with open(trajectory_path, "rb") as f:
-        trajectories = pickle.load(f)
+    trajectories = np.load(trajectory_path)  # Shape: (n_timepoints, n_trajectories, n_genes)
 
-    print(trajectories.shape)
+    print(f"Trajectory shape: {trajectories.shape}")
 
-    # Load prior graph from file
-    prior_graph_path = Path(prior_graph_file)
-    with open(prior_graph_path, "rb") as f:
-        prior_graph = pickle.load(f)
+    # Add trajectory dimension if needed: (n_timepoints, n_genes) -> (n_timepoints, 1, n_genes)
+    if trajectories.ndim == 2:
+        trajectories = trajectories[:, np.newaxis, :]
 
     gene_names_path = Path(gene_names_file)
     with open(gene_names_path, "r") as f:
@@ -193,16 +191,16 @@ def prepare_trajectories_data(
         )  # Shape: (n_timepoints, n_trajectories, n_top_genes)
 
     # Convert prior graph to adjacency matrix
-    n_nodes = len(prior_graph.nodes())
-    prior_adjacency = torch.zeros(n_nodes, n_nodes)
-    for edge in prior_graph.edges():
-        prior_adjacency[edge[0], edge[1]] = 1
-        prior_adjacency[edge[1], edge[0]] = 1  # Symmetric
+    # n_nodes = len(prior_graph.nodes())
+    # prior_adjacency = torch.zeros(n_nodes, n_nodes)
+    # for edge in prior_graph.edges():
+    #     prior_adjacency[edge[0], edge[1]] = 1
+    #     prior_adjacency[edge[1], edge[0]] = 1  # Symmetric
 
     return {
         'trajectories': filtered_trajectories,
-        'prior_adjacency': prior_adjacency,
-        'prior_graph': prior_graph,
+        # 'prior_adjacency': prior_adjacency,
+        # 'prior_graph': prior_graph,
         'gene_names': filtered_gene_names,
         'n_genes': n_genes,
         'n_timepoints': n_timepoints,
