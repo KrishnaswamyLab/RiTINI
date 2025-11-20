@@ -5,7 +5,8 @@ class GDEFunc(nn.Module):
         self, 
         gnn: nn.Module,  # Can be any GNN (GAT, GCN, etc.)
         augment: bool = False, 
-        augment_size: int = 2
+        augment_size: int = 2,
+        mlp: nn.Module = None
     ):
         """General GDE function class. To be passed to an ODEBlock"""
         super().__init__()
@@ -25,6 +26,8 @@ class GDEFunc(nn.Module):
         
         # Optional: store attention weights if using GAT
         self.attention_output = None
+        # Optional MLP to map GNN aggregated features to dx/dt (f_theta)
+        self.mlp = mlp
     
     def set_graph(self, edge_index):
         """Set the graph structure (edge_index for PyTorch Geometric)"""
@@ -40,5 +43,9 @@ class GDEFunc(nn.Module):
         # Handle attention outputs if GNN returns tuple (e.g., GAT)
         if isinstance(out, tuple):
             out, self.attention_output = out
-        
+
+        # If an MLP is provided, map the GNN outputs through it to obtain the dynamics
+        if self.mlp is not None:
+            out = self.mlp(out)
+
         return out

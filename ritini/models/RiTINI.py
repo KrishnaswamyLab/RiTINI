@@ -5,6 +5,7 @@ from ritini.models.gatConvwithAttention import GATConvWithAttention
 from ritini.models.meanAttentionLayer import MeanAttentionLayer
 from ritini.models.graphDifferentialEquation import GDEFunc
 from ritini.models.ode import ODEBlock
+from ritini.models.time_attention import TimeAttention
 
 class RiTINI(nn.Module):
     """
@@ -37,7 +38,10 @@ class RiTINI(nn.Module):
         self.out_features = out_features
 
         self.device = device
-        
+        # TimeAttention module (implements l_delta across a time window)
+        # The module will be used in forward() if the input x has a time dimension
+        self.time_attention = TimeAttention(in_features)
+
         # Build the graph ode model
         self.graph_ode = self._build_model(
             in_features, out_features, n_heads, feat_dropout, attn_dropout,negative_slope, activation, residual,bias,
@@ -62,11 +66,21 @@ class RiTINI(nn.Module):
             concat=False # This will average the attention heads
         )
 
-        # Wrap in GDE function with both layers
+        # Build a small MLP (f_theta) that maps GAT outputs to the dynamics dx/dt
+        # This creates the required MLP between the GAT and the Neural ODE
+        mlp = nn.Sequential(
+            nn.Linear(out_features, out_features),
+            activation,
+            nn.Dropout(feat_dropout) if feat_dropout > 0 else nn.Identity(),
+            nn.Linear(out_features, out_features)
+        )
+
+        # Wrap in GDE function with both layers (GAT -> MLP produces dx/dt)
         gdefunc = GDEFunc(
             gnn=gat_layer,
             augment=augment,
-            augment_size=augment_size
+            augment_size=augment_size,
+            mlp=mlp
         )
         
         # Create ODE block
@@ -89,13 +103,41 @@ class RiTINI(nn.Module):
         Returns:
             out: Node features after ODE integration, shape (num_nodes, out_features * n_heads)
         """
-        self.graph_ode.func.edge_index = edge_index # We need to pass edge_index
-        
-        # Forward through ODE block (only passes x)
-        out = self.graph_ode(x)
+        # If input has a time window, apply time attention l_delta to aggregate
+        if x is None:
+            raise ValueError("Input x must be provided")
 
-        # Return features and attention information the attentio_output contains (edge_index, attention_weights)
-        return out, self.graph_ode.func.attention_output
+        # x here is (T, N)
+        input_time = x.unsqueeze(-1)
+        
+
+        # Spatial attention (GAT) should be applied per time-slice first, then we apply time-attention
+        T, N, F = input_time.shape
+        # Ensure graph is known for the gnn calls
+        self.graph_ode.func.set_graph(edge_index)
+
+        spatial_outputs = []
+        last_spatial_att = None
+        gnn = self.graph_ode.func.gnn
+        for t in range(T):
+            x_t = input_time[t].to(self.device)
+            feat_t, att = gnn(x_t, edge_index)
+            spatial_outputs.append(feat_t)
+            last_spatial_att = att
+        # Stack across time (num_timepoints, num_nodes, features)
+        stacked = torch.stack(spatial_outputs, dim=0)
+        # Now apply time attention l_delta over the spatially-aggregated time series
+        x0, time_attn_weights = self.time_attention(stacked)
+        # spatial attentions: use the last computed spatial attention as a proxy
+        spatial_attn = last_spatial_att
+        # Pass graph structure to the GDE function
+        # prefer set_graph API if present
+        self.graph_ode.func.set_graph(edge_index)
+
+        # Forward through ODE block (starting from aggregated initial state)
+        out = self.graph_ode(x0)
+
+        return out, {'time_attention': time_attn_weights, 'spatial_attention': spatial_attn}
 
     def get_nfe(self):
         """Get number of function evaluations (computational cost indicator)."""
