@@ -23,14 +23,13 @@ def main():
     # Data parameters
     trajectory_file = 'data/data/traj_data.npy' 
     gene_names_file='data/data/gene_names.txt'
-    
-    granger_p_val_file = 'data/data/granger_RGtoIPCtoNeuron_p.csv'
-    granger_coef_file = 'data/data/granger_RGtoIPCtoNeuron_c.csv'
 
     # Prior graph construction options
     prior_mode = 'granger_causality'  # options: 'granger_causality', 'fully_connected', 'identity', 'zeros'
     prior_lag_order = 1
     prior_neg_log_threshold = 5.0
+    # Optional DatabaseExtract CSV to filter genes used for Granger causality
+    db_extract_file = 'data/data/DatabaseExtract_v_1.01.csv'
 
     # n_top_genes selection and batching
     n_top_genes = 20
@@ -62,14 +61,6 @@ def main():
         use_mean_trajectory=True,
     )
 
-    # print('prepare_trajectories_data failed, falling back to process_single_trajectory_data:', e)
-    # data = process_single_trajectory_data(
-    #     trajectory_file= trajectory_file,
-    #     granger_pval_file= granger_p_val_file,
-    #     granger_coef_file= granger_coef_file,
-    #     gene_names_file= gene_names_file
-    # )
-
 
     trajectories = data['trajectories']  # Shape: (n_timepoints, n_trajectories=1, n_genes)
 
@@ -77,11 +68,16 @@ def main():
     trajectory_idx = 0
     train_node_features = torch.tensor(trajectories[:, trajectory_idx, :], dtype=torch.float32)  # (n_timepoints, n_genes)
 
+    # Pass filtered gene names and optional DB extract to only test genes present in the DB
+    filtered_gene_names = list(data.get('gene_names', []))
     prior_adj = compute_prior_adjacency(
         train_node_features.numpy(),
         mode=prior_mode,
         lag_order=prior_lag_order,
         neg_log_threshold=prior_neg_log_threshold,
+        gene_names=filtered_gene_names,
+        db_extract_file=db_extract_file,
+        db_column='HGNC symbol'
     )
     prior_adjacency = prior_adj.to(device)
     
