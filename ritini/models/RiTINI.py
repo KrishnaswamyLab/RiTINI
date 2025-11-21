@@ -4,6 +4,7 @@ import torch.nn as nn
 from ritini.models.gatConvwithAttention import GATConvWithAttention
 from ritini.models.graphDifferentialEquation import GDEFunc
 from ritini.models.ode import ODEBlock
+from ritini.models.time_attention import TimeAttention
 
 class RiTINI(nn.Module):
     def __init__(self, in_features, out_features, latent_dim=16, history_length=5,

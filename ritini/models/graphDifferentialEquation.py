@@ -11,6 +11,12 @@ class GDEFunc(nn.Module):
         gnn: a GNN module mapping (N, latent_dim) -> (N, latent_dim)
         latent_dim: dimension of latent state per node
         """
+    def __init__(
+        self, 
+        gnn: nn.Module,  # Can be any GNN (GAT, GCN, etc.)
+        latent_dim: int = 5, 
+    ):
+        """General GDE function class. To be passed to an ODEBlock"""
         super().__init__()
         self.gnn = gnn
         self.latent_dim = latent_dim
@@ -33,6 +39,8 @@ class GDEFunc(nn.Module):
         
         # last attention info (optional)
         self.attention_output = None
+        # Optional MLP to map GNN aggregated features to dx/dt (f_theta)
+        self.mlp = mlp
     
     def set_graph(self, edge_index):
         """Set edge_index externally before ODE integration."""
