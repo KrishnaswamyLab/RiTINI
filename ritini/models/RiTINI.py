@@ -2,56 +2,54 @@ import torch
 import torch.nn as nn
 
 from ritini.models.gatConvwithAttention import GATConvWithAttention
-from ritini.models.meanAttentionLayer import MeanAttentionLayer
 from ritini.models.graphDifferentialEquation import GDEFunc
 from ritini.models.ode import ODEBlock
+from ritini.models.time_attention import TimeAttention
 
 class RiTINI(nn.Module):
-    """
-    RiTINI Graph Neural ODE model using PyTorch Geometric.
-    """
-
-    def __init__(self, in_features, out_features, n_heads=1, 
-                 feat_dropout=0.0, attn_dropout=0.0, negative_slope = 0.2,
-                 activation=nn.Tanh(), residual=False, bias = True,
+    def __init__(self, in_features, out_features, latent_dim=16, history_length=5,
+                 n_heads=1, feat_dropout=0.0, attn_dropout=0.0, negative_slope=0.2,
+                 activation=nn.Tanh(), residual=False, bias=True,
                  ode_method='rk4', atol=1e-3, rtol=1e-4, adjoint=False,
                  device='cpu'):
-        """
-        Args:
-            in_features: Input feature dimension
-            out_features: Output feature dimension (per head)
-            edge_index: Graph connectivity in COO format (2, num_edges)
-            n_heads: Number of attention heads
-            feat_dropout: Feature dropout rate
-            attn_dropout: Attention dropout rate
-            residual: Whether to use residual connections
-            ode_method: ODE solver method
-            atol: Absolute tolerance
-            rtol: Relative tolerance
-            adjoint: Use adjoint method for backprop
-            device: Device to run on
-        """
         super(RiTINI, self).__init__()
         
         self.in_features = in_features
         self.out_features = out_features
-
+        self.latent_dim = latent_dim
+        self.history_length = history_length
         self.device = device
+        
+        # History encoder: LSTM to process past trajectory per node
+        self.history_encoder = nn.LSTM(
+            input_size=in_features,
+            hidden_size=latent_dim,
+            num_layers=1,
+            batch_first=True
+        ).to(device)
+        
+        # Readout: latent ODE state -> output features
+        self.readout = nn.Sequential(
+            nn.Linear(latent_dim, 16),
+            nn.Tanh(),
+            nn.Linear(16, out_features),
+        ).to(device)
         
         # Build the graph ode model
         self.graph_ode = self._build_model(
-            in_features, out_features, n_heads, feat_dropout, attn_dropout,negative_slope, activation, residual,bias,
-            ode_method, atol, rtol, adjoint
+            latent_dim, n_heads, feat_dropout, attn_dropout, negative_slope, 
+            activation, residual, bias, ode_method, atol, rtol, adjoint
         )
     
-    def _build_model(self, in_features, out_features, n_heads, feat_dropout, 
-                     attn_dropout, negative_slope, activation, residual, bias, ode_method, atol, rtol, adjoint,augment=False, augment_size=2):
+    def _build_model(self, latent_dim, n_heads, feat_dropout, attn_dropout, 
+                     negative_slope, activation, residual, bias, 
+                     ode_method, atol, rtol, adjoint):
         """Build the Graph Neural ODE model."""
         
-        # Create GAT layer
+        # Create GAT layer (operates in latent space)
         gat_layer = GATConvWithAttention(
-            in_features=in_features,
-            out_features=out_features,
+            in_features=latent_dim,
+            out_features=latent_dim,
             n_heads=n_heads,
             negative_slope=negative_slope,
             residual=residual,
@@ -59,14 +57,13 @@ class RiTINI(nn.Module):
             feat_dropout=feat_dropout,
             attn_dropout=attn_dropout,
             bias=bias,
-            concat=False # This will average the attention heads
+            concat=False
         )
 
-        # Wrap in GDE function with both layers
+        # Wrap in GDE function
         gdefunc = GDEFunc(
             gnn=gat_layer,
-            augment=augment,
-            augment_size=augment_size
+            latent_dim=latent_dim
         )
         
         # Create ODE block
@@ -79,23 +76,36 @@ class RiTINI(nn.Module):
         ).to(self.device)
         
         return graph_ode
-        
     
-    def forward(self, x,edge_index):
+    def forward(self, x_history, edge_index, t_eval):
         """
-        TODO: Correct the time window pass. It is not clear what is the shape of X here.
         Args:
-            x: Node features, shape (num_nodes, in_features)
+            x_history: Historical trajectory, shape (num_nodes, history_length, in_features)
+            edge_index: Graph connectivity
+            t_eval: Time points to evaluate, shape (num_steps,)
         Returns:
-            out: Node features after ODE integration, shape (num_nodes, out_features * n_heads)
+            x_traj: Trajectory of predictions, shape (num_steps, num_nodes, out_features)
+            attention_output: Attention weights from GAT
         """
-        self.graph_ode.func.edge_index = edge_index # We need to pass edge_index
+        x_history = x_history.to(self.device)
+        edge_index = edge_index.to(self.device)
+        t_eval = t_eval.to(self.device)
         
-        # Forward through ODE block (only passes x)
-        out = self.graph_ode(x)
-
-        # Return features and attention information the attentio_output contains (edge_index, attention_weights)
-        return out, self.graph_ode.func.attention_output
+        # Set graph structure
+        self.graph_ode.func.set_graph(edge_index)
+        
+        # Encode history with LSTM per node
+        # x_history: (N, H, 1) where N=nodes, H=history_length
+        _, (h_n, _) = self.history_encoder(x_history)  # h_n: (1, N, latent_dim)
+        z0 = h_n.squeeze(0)  # (N, latent_dim) - initial latent state from history
+        
+        # Integrate ODE in latent space
+        z_traj = self.graph_ode(z0, t_eval)  # (T, N, latent_dim)
+        
+        # Decode to output space
+        x_traj = self.readout(z_traj)  # (T, N, out_features)
+        
+        return x_traj, self.graph_ode.func.attention_output
 
     def get_nfe(self):
         """Get number of function evaluations (computational cost indicator)."""

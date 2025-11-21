@@ -21,42 +21,31 @@ class ODEBlock(nn.Module):
         self.atol = atol
         self.rtol = rtol
         self.adjoint = adjoint
-        
-        # Integration time span: from t=0 to t=1
-        self.integration_time = torch.tensor([0.0, 1.0])
     
         # Fixed-grid solvers don't use atol/rtol
         self.fixed_grid_solvers = ['euler', 'midpoint', 'rk4', 'explicit_adams', 'implicit_adams']
-        
         if method in self.fixed_grid_solvers:
             self.options = {}
         else:
             self.options = {'atol': atol, 'rtol': rtol}
-
-    def forward(self, x, t=None):
+    
+    def forward(self, x, t_eval):
         """
         Args:
             x: Initial state, shape (num_nodes, features)
-            t: Integration time points. If None, uses [0, 1]
+            t_eval: Integration time points, shape (num_steps,)
         Returns:
-            Final state at t=1
+            Trajectory at all time points, shape (num_steps, num_nodes, features)
         """
-        #TODO: Verify if we should add linspace for the solver here.
-        if t is None:
-            t = torch.tensor([0, 1], dtype=x.dtype, device=x.device)
-        
-        
-        integrator = odeint_adjoint if self.adjoint else odeint #Choose the type of odeint
-        
+        integrator = odeint_adjoint if self.adjoint else odeint
         out = integrator(
             self.func,
             x,
-            t,
+            t_eval,
             method=self.method,
-            **self.options          #options here is either {atol, rtol} or None
+            **self.options
         )
-        
-        return out[-1]  # Return final time point
+        return out  # Return full trajectory
     
     def __repr__(self):
         return (f'ODEBlock(method={self.method}, atol={self.atol}, '

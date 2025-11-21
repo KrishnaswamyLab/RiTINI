@@ -27,7 +27,8 @@ cd RiTINI
 
 2. Install dependencies using uv (recommended):
 ```bash
-pip install uv
+uv venv
+source .venv/bin/activate
 uv sync
 ```
 

@@ -146,7 +146,7 @@ def main():
     print(f"\nStarting training...")
     best_loss = float('inf')
     training_history = []
-
+    # import pdb; pdb.set_trace()
     for epoch in tqdm(range(n_epochs)):
         epoch_loss, epoch_feature_loss, epoch_graph_loss = train_epoch(
             model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency,graph_reg_weight
