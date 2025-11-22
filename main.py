@@ -14,6 +14,7 @@ from ritini.data.temporal_graph import TemporalGraphDataset
 from ritini.models.RiTINI import RiTINI
 from ritini.train import train_epoch
 from ritini.utils.attention_graphs import adjacency_to_edge_index
+from ritini.utils.preprocess import process_trajectory_data
 
 def main():
     # Device configuration
@@ -21,18 +22,11 @@ def main():
     print(f"Using device: {device}")
 
     # Data parameters
-    trajectory_file = 'data/data/traj_data.npy' 
-    gene_names_file='data/data/gene_names.txt'
+    raw_trajectory_file = 'data/natalia/traj_data.npy' 
+    raw_gene_names_file='data/natalia/gene_names.txt'
+    interest_genes_file = 'data/natalia/interest_genes.txt'
 
-    # Prior graph construction options
-    prior_mode = 'granger_causality'  # options: 'granger_causality', 'fully_connected', 'identity', 'zeros'
-    prior_lag_order = 1
-    prior_neg_log_threshold = 5.0
-    # Optional DatabaseExtract CSV to filter genes used for Granger causality
-    db_extract_file = 'data/data/DatabaseExtract_v_1.01.csv'
-
-    # n_top_genes selection and batching
-    n_top_genes = 20
+    # Data batching
     batch_size = 4
     time_window = 5  # Length of time_window, set to None to use all timepoints
 
@@ -53,36 +47,25 @@ def main():
     lr_factor = 0.5
     lr_patience = 10
 
+    # Preprocess input data
+    trajectory_file, prior_graph_adjacency_file, gene_names_file = process_trajectory_data(
+        raw_trajectory_file,
+        raw_gene_names_file,
+        interest_genes_file)
    
     data = prepare_trajectories_data(
         trajectory_file=trajectory_file,
-        n_top_genes=n_top_genes,
-        gene_names_file=gene_names_file,
-        use_mean_trajectory=True,
-    )
-
+        prior_graph_adjacency_file=prior_graph_adjacency_file,
+        gene_names_file=gene_names_file)
 
     trajectories = data['trajectories']  # Shape: (n_timepoints, n_trajectories=1, n_genes)
+    n_genes = data['n_genes']
+    n_timepoints = data['n_timepoints']
+    prior_adjacency = data['prior_adjacency']  # Shape: (n_genes, n_genes)
 
     # train_node_features is created shortly below; compute it now from data
     trajectory_idx = 0
     train_node_features = torch.tensor(trajectories[:, trajectory_idx, :], dtype=torch.float32)  # (n_timepoints, n_genes)
-
-    # Pass filtered gene names and optional DB extract to only test genes present in the DB
-    filtered_gene_names = list(data.get('gene_names', []))
-    prior_adj = compute_prior_adjacency(
-        train_node_features.numpy(),
-        mode=prior_mode,
-        lag_order=prior_lag_order,
-        neg_log_threshold=prior_neg_log_threshold,
-        gene_names=filtered_gene_names,
-        db_extract_file=db_extract_file,
-        db_column='HGNC symbol'
-    )
-    prior_adjacency = prior_adj.to(device)
-    
-    n_genes = data['n_genes']
-    n_timepoints = data['n_timepoints']
 
     print(f"\nData loaded successfully:")
     print(f"  Trajectories shape: {trajectories.shape}")

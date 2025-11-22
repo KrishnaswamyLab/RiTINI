@@ -4,8 +4,9 @@ import pandas as pd
 import numpy as np
 import torch
 from statsmodels.tsa.stattools import grangercausalitytests
+
 def compute_prior_adjacency(
-    time_series,
+    trajectory,
     mode: str = 'granger_causality',
     lag_order: int = 1,
     test: str = 'ssr_chi2test',
@@ -22,7 +23,7 @@ def compute_prior_adjacency(
     """Compute a prior adjacency matrix.
 
     Args:
-        time_series: (T, N) array
+        trajectory: (T, N) array
         mode:{'granger_causality', 'fully_connected', 'identity', 'zeros'}.
         lag_order: lag order for Granger causality (only for granger_causality).
         test: which statsmodels test key to use (default 'ssr_chi2test').
@@ -37,27 +38,27 @@ def compute_prior_adjacency(
         adj: torch.FloatTensor of shape (N, N) where adj[i, j] indicates edge i -> j.
     """
 
-    T, N = time_series.shape
+    n_timepoints, n_genes = trajectory.shape
 
     if mode == 'fully_connected':
-        adj = np.ones((N, N), dtype=float)
+        adj = np.ones((n_genes, n_genes), dtype=float)
         if not fully_connected_self_loops:
             np.fill_diagonal(adj, 0.0)
         return torch.from_numpy(adj.astype(np.float32))
 
     if mode == 'identity':
-        adj = np.eye(N, dtype=float)
+        adj = np.eye(n_genes, dtype=float)
         return torch.from_numpy(adj.astype(np.float32))
 
     if mode == 'zeros':
-        adj = np.zeros((N, N), dtype=float)
+        adj = np.zeros((n_genes, n_genes), dtype=float)
         return torch.from_numpy(adj.astype(np.float32))
 
     if mode == 'granger_causality':
 
         # Prepare adjacency / weight matrix
-        pvals = np.ones((N, N), dtype=float) * 1.0
-        neglog = np.zeros((N, N), dtype=float)
+        pvals = np.ones((n_genes, n_genes), dtype=float) * 1.0
+        neglog = np.zeros((n_genes, n_genes), dtype=float)
 
         # If a DB extract is provided, build a set of allowed identifiers to filter tests.
         # Use a helper to extract identifiers inside parentheses (e.g. 'GENE (ENSG...)' -> 'ENSG...')
@@ -93,12 +94,12 @@ def compute_prior_adjacency(
             in_db_mask = [True] * len(gene_names)
 
         # For each target i and predictor j, test whether j causes i
-        for i in range(N):
-            xi = time_series[:, i]
+        for i in range(n_genes):
+            xi = trajectory[:, i]
             name_i = gene_names[i] if i < len(gene_names) else str(i)
             i_in_db = in_db_mask[i] if i < len(in_db_mask) else True
 
-            for j in range(N):
+            for j in range(n_genes):
                 if i == j:
                     pvals[j, i] = 1.0
                     neglog[j, i] = 0.0
@@ -112,7 +113,7 @@ def compute_prior_adjacency(
                     print(f"Skipping test for genes {name_i} and {name_j} as one or both are not in the DB.")
                     p_min = 1.0
                 else:
-                    xj = time_series[:, j]
+                    xj = trajectory[:, j]
                     data_2col = np.vstack([xi, xj]).T
                     try:
                         res = grangercausalitytests(data_2col, maxlag=lag_order, verbose=False)
@@ -150,5 +151,6 @@ def compute_prior_adjacency(
         if not directed:
             adj = np.maximum(adj, adj.T)
 
-        return torch.from_numpy(adj.astype(np.float32))
+        # TODO: Add gene names to return value
+        return adj.astype(np.float32), gene_names
 

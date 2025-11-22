@@ -1,0 +1,114 @@
+import os
+import pickle
+import numpy as np
+from pathlib import Path
+from typing import Dict, Tuple, Optional
+import torch
+import anndata
+import scanpy as sc
+from ritini.utils.prior_graph import compute_prior_adjacency
+
+def process_trajectory_data(raw_trajectory_file, 
+                            raw_gene_names_file,
+                            interest_genes_file,
+                            output_dir='data/processed/',
+                            prior_graph_mode='granger',
+                            n_highly_variable_genes=200,
+                            **kwargs):
+
+    # Load trajectory data from file
+    trajectory_path = Path(raw_trajectory_file)
+    trajectories = np.load(trajectory_path)  # Shape: (n_timepoints, n_trajectories, n_genes)
+
+    print(f"Trajectory shape: {trajectories.shape}")
+
+    # Add trajectory dimension if needed: (n_timepoints, n_genes) -> (n_timepoints, 1, n_genes)
+    if trajectories.ndim == 2:
+        trajectories = trajectories[:, np.newaxis, :]
+
+    # Average across trajectories dimension
+    trajectory = trajectories.mean(axis=1, keepdims=True)  # Shape: (n_timepoints, 1, n_genes)
+    # Squeeze trajectory dimension for prior computation
+    trajectory = trajectory.squeeze(axis=1)  # Shape: (n_timepoints, n_genes)
+
+    gene_names_path = Path(raw_gene_names_file)
+    with open(gene_names_path, "r") as f:
+        gene_names = [line.strip() for line in f.readlines()]
+
+    # Load interest genes
+    interest_genes_path = Path(interest_genes_file)
+
+    with open(interest_genes_path, "r") as f:
+        interest_genes = [line.strip() for line in f.readlines()]
+
+
+    # Filter genes based on highly variable genes
+    # Create AnnData object for scanpy
+    adata = anndata.AnnData(X=trajectory)
+    adata.var_names = gene_names
+
+    print(f"Identifying {n_highly_variable_genes} highly variable genes.")
+    # Identify highly variable genes
+    sc.pp.highly_variable_genes(
+        adata,
+        n_top_genes=n_highly_variable_genes,
+    )
+
+    # Get indices of highly variable genes
+    highly_variable_genes_idx = np.where(adata.var['highly_variable'])[0]
+    highly_variable_genes = adata.var_names[highly_variable_genes_idx].tolist()
+
+    # Get indices of interest genes
+    selected_genes = highly_variable_genes + interest_genes
+
+    # Filter trajectories to highly variable + interest genes
+    # Convert gene names to indices using a dictionary lookup
+    gene_name_to_idx = {name: idx for idx, name in enumerate(adata.var_names)}
+    selected_gene_indices = np.array([gene_name_to_idx[gene] for gene in selected_genes])
+    
+    filtered_trajectory = trajectory[:, selected_gene_indices]
+    filtered_gene_names = adata.var_names[selected_genes]
+
+    # Compute prior adjacency matrix and retrieve the corresponding gene names
+    prior_adjacency, prior_adjacency_genes = compute_prior_adjacency(filtered_trajectory,
+                                                                     mode=prior_graph_mode, 
+                                                                     gene_names=filtered_gene_names, 
+                                                                     **kwargs)
+
+    # Save processed files to processed path
+    trajectory_file = os.path.join(output_dir,'trajectory.npy')
+    gene_names_file = os.path.join(output_dir,'gene_names.npy')
+    prior_graph_adjacency_file = os.path.join(output_dir,'prior_adjacency.npy')
+
+    np.save(trajectory_file, filtered_trajectory)
+    np.save(prior_graph_adjacency_file, prior_adjacency)
+    np.save(gene_names_file, prior_adjacency_genes)
+
+    return trajectory_file, prior_graph_adjacency_file, gene_names_file
+
+
+if __name__ == "__main__":
+    # Example usage
+    raw_trajectory_file = 'data/natalia/traj_data.npy' 
+    raw_gene_names_file='data/natalia/gene_names.txt'
+    interest_genes_file = 'data/natalia/interest_genes.txt'
+
+    # Test the function with sample data
+    trajectory_file, prior_adjacency_file, gene_names_file = process_trajectory_data(
+        raw_trajectory_file=raw_trajectory_file,
+        raw_gene_names_file=raw_gene_names_file,
+        interest_genes_file=interest_genes_file,
+        prior_graph_mode='granger',
+        n_highly_variable_genes=200
+    )
+    
+    print(f"Trajectory file saved at: {trajectory_file}")
+    print(f"Prior adjacency file saved at: {prior_adjacency_file}")
+    print(f"Gene names file saved at: {gene_names_file}")
+    
+    # Verify files exist and can be loaded
+    assert Path(trajectory_file).exists(), f"Trajectory file not found at {trajectory_file}"
+    assert Path(prior_adjacency_file).exists(), f"Prior adjacency file not found at {prior_adjacency_file}"
+    assert Path(gene_names_file).exists(), f"Gene names file not found at {gene_names_file}"
+    
+    print("\nAll files saved successfully!")
