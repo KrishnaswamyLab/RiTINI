@@ -1,6 +1,6 @@
 from typing import Optional, Union, Any
 import pandas as pd
-
+from tqdm import tqdm
 import numpy as np
 import torch
 from statsmodels.tsa.stattools import grangercausalitytests
@@ -36,23 +36,28 @@ def compute_prior_adjacency(
 
     Returns:
         adj: torch.FloatTensor of shape (N, N) where adj[i, j] indicates edge i -> j.
+        gene_names: list of gene names corresponding to adjacency matrix rows/columns.
     """
 
     n_timepoints, n_genes = trajectory.shape
+
+    #Length of gene_names must match number of genes in trajectory.
+    assert len(gene_names) == n_genes, f"Length of gene_names ({len(gene_names)}) must match number of genes in trajectory ({n_genes})" 
 
     if mode == 'fully_connected':
         adj = np.ones((n_genes, n_genes), dtype=float)
         if not fully_connected_self_loops:
             np.fill_diagonal(adj, 0.0)
-        return torch.from_numpy(adj.astype(np.float32))
+
+        return torch.from_numpy(adj.astype(np.float32)), gene_names
 
     if mode == 'identity':
         adj = np.eye(n_genes, dtype=float)
-        return torch.from_numpy(adj.astype(np.float32))
+        return torch.from_numpy(adj.astype(np.float32)) , gene_names
 
     if mode == 'zeros':
         adj = np.zeros((n_genes, n_genes), dtype=float)
-        return torch.from_numpy(adj.astype(np.float32))
+        return torch.from_numpy(adj.astype(np.float32)), gene_names
 
     if mode == 'granger_causality':
 
@@ -82,7 +87,7 @@ def compute_prior_adjacency(
 
         # Normalize gene names list and precompute mask of which genes appear in the DB
         if gene_names is None:
-            gene_names = [str(i) for i in range(N)]
+            gene_names = [str(i) for i in range(n_genes)]
         else:
             gene_names = [str(g) for g in gene_names]
 
@@ -94,7 +99,7 @@ def compute_prior_adjacency(
             in_db_mask = [True] * len(gene_names)
 
         # For each target i and predictor j, test whether j causes i
-        for i in range(n_genes):
+        for i in tqdm(range(n_genes),"Computing Granger causality prior adjacency matrix"):
             xi = trajectory[:, i]
             name_i = gene_names[i] if i < len(gene_names) else str(i)
             i_in_db = in_db_mask[i] if i < len(in_db_mask) else True
@@ -151,6 +156,5 @@ def compute_prior_adjacency(
         if not directed:
             adj = np.maximum(adj, adj.T)
 
-        # TODO: Add gene names to return value
         return adj.astype(np.float32), gene_names
 

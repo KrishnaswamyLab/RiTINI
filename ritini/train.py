@@ -1,6 +1,5 @@
 import torch
-
-from ritini.utils.attention_graphs import adjacency_to_edge_index
+from ritini.utils.attention_graphs import adjacency_to_edge_index, attention_to_adjacency
 
 def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency, graph_reg_weight=0.0):
     """
@@ -43,7 +42,6 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
             # Graph regularization loss (optional)
             if graph_reg_weight > 0 and attention_output is not None:
                 edge_index_attn, attn_weights = attention_output
-                from ritini.utils.attention_graphs import attention_to_adjacency
                 current_adj = attention_to_adjacency(attn_weights, edge_index_attn, n_genes)
                 graph_loss = torch.sum(torch.abs(current_adj - prior_adjacency))
                 batch_graph_loss += graph_loss

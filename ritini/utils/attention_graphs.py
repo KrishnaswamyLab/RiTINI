@@ -10,6 +10,7 @@ def adjacency_to_edge_index(adjacency):
     Returns:
         edge_index: (2, num_edges) tensor in COO format
     """
+
     edge_index = adjacency.nonzero().t().contiguous()
     return edge_index
 

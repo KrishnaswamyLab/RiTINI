@@ -1,19 +1,14 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import json
-import numpy as np
-from ritini.utils.prior_graph import compute_prior_adjacency
-import networkx as nx
+import os
 from tqdm import tqdm
-from ritini.data.trajectory_loader import prepare_trajectories_data, process_single_trajectory_data
-from ritini.models.gat import TemporalGAT
-from ritini.models.gatConvwithAttention import GATConvWithAttention
+from ritini.data.trajectory_loader import prepare_trajectories_data
 from ritini.data.temporal_graph import TemporalGraphDataset
 from ritini.models.RiTINI import RiTINI
 from ritini.train import train_epoch
-from ritini.utils.attention_graphs import adjacency_to_edge_index
 from ritini.utils.preprocess import process_trajectory_data
 
 def main():
@@ -22,9 +17,9 @@ def main():
     print(f"Using device: {device}")
 
     # Data parameters
-    raw_trajectory_file = 'data/natalia/traj_data.npy' 
-    raw_gene_names_file='data/natalia/gene_names.txt'
-    interest_genes_file = 'data/natalia/interest_genes.txt'
+    raw_trajectory_file = 'data/raw/traj_data.npy' 
+    raw_gene_names_file='data/raw/gene_names.txt'
+    interest_genes_file = 'data/raw/interest_genes.txt'
 
     # Data batching
     batch_size = 4
@@ -47,12 +42,16 @@ def main():
     lr_factor = 0.5
     lr_patience = 10
 
+    #Output directories
+    output_dir = 'output'
+
     # Preprocess input data
     trajectory_file, prior_graph_adjacency_file, gene_names_file = process_trajectory_data(
         raw_trajectory_file,
         raw_gene_names_file,
         interest_genes_file)
-   
+    
+    # Prepare input data
     data = prepare_trajectories_data(
         trajectory_file=trajectory_file,
         prior_graph_adjacency_file=prior_graph_adjacency_file,
@@ -63,9 +62,17 @@ def main():
     n_timepoints = data['n_timepoints']
     prior_adjacency = data['prior_adjacency']  # Shape: (n_genes, n_genes)
 
+    #Convert prior adjacency to torch tensor
+    prior_adjacency = torch.tensor(prior_adjacency, dtype=torch.float32).to(device)  # Shape: (n_genes, n_genes)
+
     # train_node_features is created shortly below; compute it now from data
     trajectory_idx = 0
     train_node_features = torch.tensor(trajectories[:, trajectory_idx, :], dtype=torch.float32)  # (n_timepoints, n_genes)
+
+    # Normalize data
+    mean = train_node_features.mean()
+    std = train_node_features.std()
+    train_node_features = (train_node_features - mean) / std
 
     print(f"\nData loaded successfully:")
     print(f"  Trajectories shape: {trajectories.shape}")
@@ -73,6 +80,11 @@ def main():
     print(f"  Number of timepoints: {n_timepoints}")
     print(f"  Prior adjacency shape: {prior_adjacency.shape}\n")
     print(f"Train node features shape: {train_node_features.shape}")
+    print(f"  Data normalized: mean={mean:.3f}, std={std:.3f}")
+
+    # Check prior graph properties
+    print(f"  Graph density: {(prior_adjacency > 0).float().mean():.3f}")
+    print(f"  Graph edges: {(prior_adjacency > 0).sum()}")
 
     # Create dataset and dataloader
     dataset = TemporalGraphDataset(
@@ -129,7 +141,7 @@ def main():
     print(f"\nStarting training...")
     best_loss = float('inf')
     training_history = []
-    # import pdb; pdb.set_trace()
+
     for epoch in tqdm(range(n_epochs)):
         epoch_loss, epoch_feature_loss, epoch_graph_loss = train_epoch(
             model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency,graph_reg_weight
@@ -155,7 +167,10 @@ def main():
                 'loss': best_loss,
                 'feature_loss': epoch_feature_loss,
                 'graph_loss': epoch_graph_loss,
-            }, 'best_model.pt')
+                'n_genes': n_genes,
+                'mean': mean.item(),
+                'std': std.item(),
+            }, os.path.join(output_dir,'best_model.pt'))
 
         # Print progress with all loss components
         if (epoch + 1) % 10 == 0:
@@ -169,7 +184,7 @@ def main():
     print(f"Best total loss: {best_loss:.6f}")
 
     # Save training history with all metrics
-    with open('training_history.json', 'w') as f:
+    with open(os.path.join(output_dir,'training_history.json'), 'w') as f:
         json.dump({'history': training_history}, f, indent=2)
 
     print(f"Training history saved to training_history.json")

@@ -12,7 +12,7 @@ def process_trajectory_data(raw_trajectory_file,
                             raw_gene_names_file,
                             interest_genes_file,
                             output_dir='data/processed/',
-                            prior_graph_mode='granger',
+                            prior_graph_mode='granger_causality',
                             n_highly_variable_genes=200,
                             **kwargs):
 
@@ -67,39 +67,46 @@ def process_trajectory_data(raw_trajectory_file,
     selected_gene_indices = np.array([gene_name_to_idx[gene] for gene in selected_genes])
     
     filtered_trajectory = trajectory[:, selected_gene_indices]
-    filtered_gene_names = adata.var_names[selected_genes]
+    filtered_gene_names = adata.var_names[selected_gene_indices]
 
     # Compute prior adjacency matrix and retrieve the corresponding gene names
-    prior_adjacency, prior_adjacency_genes = compute_prior_adjacency(filtered_trajectory,
+    prior_adjacency, gene_names_in_prior = compute_prior_adjacency(filtered_trajectory,
                                                                      mode=prior_graph_mode, 
                                                                      gene_names=filtered_gene_names, 
                                                                      **kwargs)
 
     # Save processed files to processed path
     trajectory_file = os.path.join(output_dir,'trajectory.npy')
-    gene_names_file = os.path.join(output_dir,'gene_names.npy')
     prior_graph_adjacency_file = os.path.join(output_dir,'prior_adjacency.npy')
+    gene_names_file = os.path.join(output_dir,'gene_names.txt')
+
 
     np.save(trajectory_file, filtered_trajectory)
     np.save(prior_graph_adjacency_file, prior_adjacency)
-    np.save(gene_names_file, prior_adjacency_genes)
+
+    # Save gene names as text file (one per line)
+    with open(gene_names_file, 'w') as f:
+        for gene in gene_names_in_prior:
+            f.write(f"{gene}\n")
 
     return trajectory_file, prior_graph_adjacency_file, gene_names_file
 
 
 if __name__ == "__main__":
     # Example usage
-    raw_trajectory_file = 'data/natalia/traj_data.npy' 
-    raw_gene_names_file='data/natalia/gene_names.txt'
-    interest_genes_file = 'data/natalia/interest_genes.txt'
+    raw_trajectory_file = 'data/raw/traj_data.npy' 
+    raw_gene_names_file='data/raw/gene_names.txt'
+    interest_genes_file = 'data/raw/interest_genes.txt'
 
     # Test the function with sample data
     trajectory_file, prior_adjacency_file, gene_names_file = process_trajectory_data(
         raw_trajectory_file=raw_trajectory_file,
         raw_gene_names_file=raw_gene_names_file,
         interest_genes_file=interest_genes_file,
-        prior_graph_mode='granger',
-        n_highly_variable_genes=200
+        prior_graph_mode='fully_connected',
+        n_highly_variable_genes=200,
+        output_dir='data/processed/'
+        # db_extract_file = 'data/DatabaseExtract_v_1.01.csv'
     )
     
     print(f"Trajectory file saved at: {trajectory_file}")

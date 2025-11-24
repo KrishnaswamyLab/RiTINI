@@ -63,7 +63,7 @@ class RiTINI(nn.Module):
         # Wrap in GDE function
         gdefunc = GDEFunc(
             gnn=gat_layer,
-            latent_dim=latent_dim
+            mlp_latent_dim=[latent_dim, 4*latent_dim]
         )
         
         # Create ODE block

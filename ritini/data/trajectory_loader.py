@@ -47,10 +47,10 @@ def prepare_trajectories_data(
     with open(gene_names_path, "r") as f:
         gene_names = [line.strip() for line in f.readlines()]
     
+
     # Load prior graph from file
     prior_graph_adjacency_path = Path(prior_graph_adjacency_file)
-    with open(prior_graph_adjacency_path, "rb") as f:
-        prior_adjacency = pickle.load(f)
+    prior_adjacency = np.load(prior_graph_adjacency_path)  
 
 
     n_timepoints, n_trajectories, n_genes = trajectories.shape
@@ -70,3 +70,4 @@ def prepare_trajectories_data(
         'n_timepoints': n_timepoints,
         'node_features': node_features
     }
+

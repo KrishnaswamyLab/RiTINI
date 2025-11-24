@@ -5,7 +5,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 
 from ritini.models.RiTINI import RiTINI
-from ritini.data.trajectory_loader import process_single_trajectory_data
+from ritini.data.trajectory_loader import prepare_trajectories_data
 from ritini.data.temporal_graph import TemporalGraphDataset
 from ritini.utils.attention_graphs import adjacency_to_edge_index
 
@@ -17,28 +17,28 @@ def visualize_predictions(model_path='best_model_genes.pt',
     print("Loading data and model...")
     
     # Data paths
-    trajectory_file = 'data/trajectory_1_natalia/traj_data.npy'    
-    gene_names_file = 'data/trajectory_1_natalia/gene_names.txt'    
-    granger_p_val_file = 'data/cell_cycle_RG/granger_RGtoIPCtoNeuron_p.csv'    
-    granger_coef_file = 'data/cell_cycle_RG/granger_RGtoIPCtoNeuron_c.csv'
+    processed_trajectory_file = 'data/processed/trajectory.npy' 
+    prior_adjacency_file = 'data/processed/prior_adjacency.npy'
+    gene_names_file = 'data/processed/gene_names.txt'    
     
     # Load model checkpoint first to get n_genes
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     n_genes_from_checkpoint = checkpoint.get('n_genes', None)
     
     # Load gene data
-    data = process_single_trajectory_data(
-        trajectory_file=trajectory_file,
-        granger_pval_file=granger_p_val_file,
-        granger_coef_file=granger_coef_file,
-        gene_names_file=gene_names_file
-    )
+    # Prepare input data
+    data = prepare_trajectories_data(
+        trajectory_file=processed_trajectory_file,
+        prior_graph_adjacency_file=prior_adjacency_file,
+        gene_names_file=gene_names_file)
     
     trajectories = data['trajectories']
     gene_names = data['gene_names']
-    prior_adjacency = data['prior_adjacency'].to(device)
+    prior_adjacency = data['prior_adjacency']
     n_genes = data['n_genes']
     n_timepoints = data['n_timepoints']
+    
+    prior_adjacency = torch.tensor(prior_adjacency, dtype=torch.float32).to(device)  # Shape: (n_genes, n_genes)
     
     # Extract trajectory
     trajectory_idx = 0

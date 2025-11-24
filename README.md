@@ -37,56 +37,116 @@ Or using pip:
 pip install -e .
 ```
 
-## Quick Start
-
-### Training on Real Data
-
-Run the main training script:
+## Training on Real Data
 
 ```bash
 python main.py
 ```
+The main script executes the following pipeline:
 
-This will:
-1. Load trajectory data from `data/trajectories/traj_data.pkl`
-2. Incorporate prior network information from `data/trajectories/cancer_granger_prior_graph_nx_20.pkl`
-3. Train the RiTINI model for 200 epochs
-4. Save the best model to `best_model.pt`
-5. Save training history to `training_history.json`
+1. **Data Preprocessing**
+   - Load raw trajectory data from `.npy` file
+   - Filter genes based on interest genes list
+   - Compute prior adjacency matrix (uses Granger Causality by default)
+   - Average all trajectories into a single representative trajectory
+   - Normalize features using z-score normalization
 
-### Training on Synthetic Data
+2. **Dataset Creation**
+   - Create temporal graph dataset with sliding time windows
+   - Generate batches for efficient training
+
+3. **Model Training**
+   - Initialize RiTINI model with specified architecture
+   - Apply graph regularization based on prior network (_graph_reg_weight_ hyperparameter)
+
+4. **Model Checkpointing**
+   - Save best model based on total loss
+   - Store training history with all loss components
+
+
+## Input Data
+
+The script requires three input files:
+
+1. **Trajectory Data** (`raw_trajectory_file`): `.npy` file containing gene expression trajectories
+   - Shape: `(n_timepoints, n_trajectories, n_genes)`
+   
+2. **Gene Names** (`raw_gene_names_file`): `.txt` file with names of all genes
+   
+3. **Interest Genes** (`interest_genes_file`): `.txt` file with subset of genes to analyze
+
+### Default Paths
+```python
+raw_trajectory_file = 'data/raw/traj_data.npy'
+raw_gene_names_file = 'data/raw/gene_names.txt'
+interest_genes_file = 'data/raw/interest_genes.txt'
+```
+
+
+### Trajectory Inference and Visualization
+```python
+python3 gene_viz.py
+```
+
+### Obtaining the GRN
+```python
+python3 gene_viz.py
+```
+
+
+## Training on Synthetic Data
 
 ```bash
 python test_toy_data_ritini.py
 ```
+## Model Architecture
 
-### Using the Model
+### RiTINI Model Parameters
+- **Input features**: 1 (gene expression value per node)
+- **Output features**: 1 (predicted expression value)
+- **Architecture**: Temporal Graph Attention Network
+- **Attention mechanism**: Multi-head attention with configurable heads
 
+### Hyperparameters
+
+#### Architecture
 ```python
-import torch
-from ritini.models.RiTINI import RiTINI
+n_heads = 1                    # Number of attention heads
+feat_dropout = 0.1             # Feature dropout rate
+attn_dropout = 0.1             # Attention dropout rate
+activation_func = nn.Tanh()    # Activation function
+residual = False               # Use residual connections
+negative_slope = 0.2           # LeakyReLU negative slope
+```
 
-# Initialize model
-model = RiTINI(
-    in_features=1,          # Gene expression values
-    out_features=1,         # Predicted expression
-    n_heads=1,              # Number of attention heads
-    feat_dropout=0.1,
-    attn_dropout=0.1,
-    negative_slope=0.2,
-    residual=False,
-    activation=torch.nn.Tanh(),
-    ode_method='rk4',       # ODE solver method
-    atol=1e-3,
-    rtol=1e-4,
-    device='cuda'
-)
+#### ODE Integration (Model Defaults)
+The RiTINI model uses Neural ODEs for continuous-time modeling:
+```python
+ode_method = 'rk4'             # ODE solver (rk4, dopri5, etc.)
+atol = 1e-3                    # Absolute tolerance
+rtol = 1e-4                    # Relative tolerance
+use_adjoint = False            # Use adjoint method for memory efficiency
+```
 
-# Forward pass
-node_features = torch.randn(n_genes, 1)  # (n_genes, features)
-edge_index = torch.tensor([[0, 1], [1, 0]])  # Graph connectivity
+#### Training
+```python
+n_epochs = 200                 # Number of training epochs
+learning_rate = 0.001          # Initial learning rate
+batch_size = 4                 # Batch size
+time_window = 5                # Temporal window length (None = all timepoints)
+```
 
-predictions, attention_output = model(node_features, edge_index)
+#### Loss Function
+```python
+graph_reg_weight = 0.1         # Weight for graph regularization loss
+```
+
+Total loss = Feature reconstruction loss + (graph_reg_weight × Graph regularization loss)
+
+#### Learning Rate Scheduler
+```python
+lr_factor = 0.5                # LR reduction factor
+lr_patience = 10               # Epochs to wait before reducing LR
 ```
 
 ## Model Architecture
@@ -148,22 +208,6 @@ data = prepare_trajectories_data(
 )
 ```
 
-### Prior Network
-Can be provided as:
-- NetworkX graph (`.pkl` file)
-- Adjacency matrix (NumPy array)
-
-## Visualization
-
-Generate attention heatmaps and trajectory predictions:
-
-```bash
-# Visualize RiTINI attention patterns
-python ritini/visualizations/visualize_graphs_attention_ritini.py
-
-```
-
-Visualizations are saved to the `visualizations/` directory.
 
 ## Testing
 
