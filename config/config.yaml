@@ -1,0 +1,53 @@
+# RiTINI Model Configuration
+# ===========================
+
+# Device configuration
+device: auto  # 'auto', 'cuda', or 'cpu'
+
+# Data paths
+data:
+  raw_trajectory_file: data/raw/traj_data.npy
+  raw_gene_names_file: data/raw/gene_names.txt
+  interest_genes_file: data/raw/interest_genes.txt
+
+  prior_graph_mode: fully_connected  # Options: granger_causality, fully_connected, identity, zeros
+
+# Data batching
+batching:
+  batch_size: 4
+  time_window: 5  # Length of time_window, set to null to use all timepoints
+
+# Model architecture
+model:
+  in_features: 1      # Each node has 1 feature (gene expression)
+  out_features: 1     # Predict 1 feature per node
+  n_heads: 1
+  feat_dropout: 0.1
+  attn_dropout: 0.1
+  negative_slope: 0.2
+  residual: false
+  activation: tanh    # Options: tanh, relu, leaky_relu, elu, gelu
+  bias: true
+
+# Training parameters
+training:
+  n_epochs: 200
+  learning_rate: 0.001
+
+# Loss configuration
+loss:
+  graph_reg_weight: 0.01
+
+# Learning rate scheduler
+scheduler:
+  type: reduce_on_plateau
+  factor: 0.5
+  patience: 10
+  mode: min
+
+# Output configuration
+output:
+  dir: output
+  save_best_model: true
+  save_history: true
+  print_every: 10  # Print progress every N epochs

@@ -4,52 +4,74 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import json
 import os
+import yaml
 from tqdm import tqdm
+from ritini.utils.utils import load_config, get_activation, get_device
 from ritini.data.trajectory_loader import prepare_trajectories_data
 from ritini.data.temporal_graph import TemporalGraphDataset
 from ritini.models.RiTINI import RiTINI
 from ritini.train import train_epoch
 from ritini.utils.preprocess import process_trajectory_data
 
-def main():
+def main(config_path: str = 'config/config.yaml'):
+    # Load configuration
+    config = load_config(config_path)
+    
     # Device configuration
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = get_device(config['device'])
     print(f"Using device: {device}")
 
-    # Data parameters
-    raw_trajectory_file = 'data/raw/traj_data.npy' 
-    raw_gene_names_file='data/raw/gene_names.txt'
-    interest_genes_file = 'data/raw/interest_genes.txt'
+    # Data parameters from config
+    raw_trajectory_file = config['data']['raw_trajectory_file']
+    raw_gene_names_file = config['data']['raw_gene_names_file']
+    interest_genes_file = config['data']['interest_genes_file']
 
-    # Data batching
-    batch_size = 4
-    time_window = 5  # Length of time_window, set to None to use all timepoints
+    prior_graph_mode = config['data']['prior_graph_mode']
+
+    # Batching parameters
+    batch_size = config['batching']['batch_size']
+    time_window = config['batching']['time_window']
+
+
+    # Model parameters
+    model_config = config['model']
+    n_heads = model_config['n_heads']
+    feat_dropout = model_config['feat_dropout']
+    attn_dropout = model_config['attn_dropout']
+    negative_slope = model_config['negative_slope']
+    residual = model_config['residual']
+    activation_func = get_activation(model_config['activation'])
+    bias = model_config['bias']
 
     # Training parameters
-    n_epochs = 200
-    learning_rate = 0.001
-    n_heads = 1
-    feat_dropout = 0.1
-    attn_dropout = 0.1
-    activation_func = nn.Tanh()
-    residual = False
-    negative_slope = 0.2
+    n_epochs = config['training']['n_epochs']
+    learning_rate = config['training']['learning_rate']
 
     # Loss parameters
-    graph_reg_weight = 0.1
+    graph_reg_weight = config['loss']['graph_reg_weight']
 
     # Scheduler configs
-    lr_factor = 0.5
-    lr_patience = 10
+    scheduler_config = config['scheduler']
+    lr_factor = scheduler_config['factor']
+    lr_patience = scheduler_config['patience']
 
-    #Output directories
-    output_dir = 'output'
+    # Output configuration
+    output_dir = config['output']['dir']
+    print_every = config['output']['print_every']
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Save a copy of the config used for this run
+    with open(os.path.join(output_dir, 'config_used.yaml'), 'w') as f:
+        yaml.dump(config, f, default_flow_style=False)
 
     # Preprocess input data
     trajectory_file, prior_graph_adjacency_file, gene_names_file = process_trajectory_data(
         raw_trajectory_file,
         raw_gene_names_file,
-        interest_genes_file)
+        interest_genes_file,
+        prior_graph_mode=prior_graph_mode)
     
     # Prepare input data
     data = prepare_trajectories_data(

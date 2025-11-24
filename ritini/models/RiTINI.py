@@ -7,7 +7,11 @@ from ritini.models.ode import ODEBlock
 from ritini.models.time_attention import TimeAttention
 
 class RiTINI(nn.Module):
-    def __init__(self, in_features, out_features, latent_dim=16, history_length=5,
+    def __init__(self, 
+                 in_features, 
+                 out_features, 
+                 input_latent_dim=16, 
+                 history_length=5,
                  n_heads=1, feat_dropout=0.0, attn_dropout=0.0, negative_slope=0.2,
                  activation=nn.Tanh(), residual=False, bias=True,
                  ode_method='rk4', atol=1e-3, rtol=1e-4, adjoint=False,
@@ -16,28 +20,28 @@ class RiTINI(nn.Module):
         
         self.in_features = in_features
         self.out_features = out_features
-        self.latent_dim = latent_dim
+        self.input_latent_dim = input_latent_dim
         self.history_length = history_length
         self.device = device
         
         # History encoder: LSTM to process past trajectory per node
         self.history_encoder = nn.LSTM(
             input_size=in_features,
-            hidden_size=latent_dim,
+            hidden_size=input_latent_dim,
             num_layers=1,
             batch_first=True
         ).to(device)
         
         # Readout: latent ODE state -> output features
         self.readout = nn.Sequential(
-            nn.Linear(latent_dim, 16),
+            nn.Linear(input_latent_dim, 16),
             nn.Tanh(),
             nn.Linear(16, out_features),
         ).to(device)
         
         # Build the graph ode model
         self.graph_ode = self._build_model(
-            latent_dim, n_heads, feat_dropout, attn_dropout, negative_slope, 
+            input_latent_dim, n_heads, feat_dropout, attn_dropout, negative_slope, 
             activation, residual, bias, ode_method, atol, rtol, adjoint
         )
     
