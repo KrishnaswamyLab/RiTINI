@@ -66,7 +66,7 @@ def main(config_path: str = 'config/config.yaml'):
     os.makedirs(output_dir, exist_ok=True)
 
     # Save a copy of the config used for this run
-    with open(os.path.join(output_dir, 'config_used.yaml'), 'w') as f:
+    with open(os.path.join(output_dir, 'config.yaml'), 'w') as f:
         yaml.dump(config, f, default_flow_style=False)
 
     # Preprocess input data
