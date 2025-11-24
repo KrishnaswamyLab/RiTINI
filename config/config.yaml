@@ -9,8 +9,8 @@ data:
   raw_trajectory_file: data/raw/traj_data.npy
   raw_gene_names_file: data/raw/gene_names.txt
   interest_genes_file: data/raw/interest_genes.txt
-
   prior_graph_mode: fully_connected  # Options: granger_causality, fully_connected, identity, zeros
+  n_highly_variable_genes: 20  # Number of highly variable genes to select
 
 # Data batching
 batching:
@@ -25,9 +25,12 @@ model:
   feat_dropout: 0.1
   attn_dropout: 0.1
   negative_slope: 0.2
+  input_latent_dim: 16  # Dimension of latent space for input features
+  history_length: 5  # Number of past timepoints to use for each prediction
   residual: false
   activation: tanh    # Options: tanh, relu, leaky_relu, elu, gelu
   bias: true
+  ode_method: rk4  # Options: euler, rk4
 
 # Training parameters
 training:

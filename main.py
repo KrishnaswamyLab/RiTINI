@@ -25,8 +25,8 @@ def main(config_path: str = 'config/config.yaml'):
     raw_trajectory_file = config['data']['raw_trajectory_file']
     raw_gene_names_file = config['data']['raw_gene_names_file']
     interest_genes_file = config['data']['interest_genes_file']
-
     prior_graph_mode = config['data']['prior_graph_mode']
+    n_highly_variable_genes = config['data']['n_highly_variable_genes']
 
     # Batching parameters
     batch_size = config['batching']['batch_size']
@@ -40,8 +40,11 @@ def main(config_path: str = 'config/config.yaml'):
     attn_dropout = model_config['attn_dropout']
     negative_slope = model_config['negative_slope']
     residual = model_config['residual']
+    input_latent_dim = model_config['input_latent_dim']
+    history_length = model_config['history_length'] 
     activation_func = get_activation(model_config['activation'])
     bias = model_config['bias']
+    ode_method = model_config['ode_method']
 
     # Training parameters
     n_epochs = config['training']['n_epochs']
@@ -71,7 +74,8 @@ def main(config_path: str = 'config/config.yaml'):
         raw_trajectory_file,
         raw_gene_names_file,
         interest_genes_file,
-        prior_graph_mode=prior_graph_mode)
+        prior_graph_mode=prior_graph_mode,
+        n_highly_variable_genes=n_highly_variable_genes)
     
     # Prepare input data
     data = prepare_trajectories_data(
@@ -128,6 +132,8 @@ def main(config_path: str = 'config/config.yaml'):
     model = RiTINI(
         in_features=1,  # Each node has 1 feature (gene expression)
         out_features=1,  # Predict 1 feature per node
+        input_latent_dim=input_latent_dim,
+        history_length=history_length,
         n_heads=n_heads,
         feat_dropout = feat_dropout,
         attn_dropout=attn_dropout,
@@ -135,6 +141,7 @@ def main(config_path: str = 'config/config.yaml'):
         residual=residual,
         activation=activation_func,
         bias=True,
+        ode_method=ode_method,
         device=device
     ).to(device)
 
