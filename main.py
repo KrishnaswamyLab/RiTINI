@@ -187,8 +187,8 @@ def main():
     with open(os.path.join(output_dir,'training_history.json'), 'w') as f:
         json.dump({'history': training_history}, f, indent=2)
 
-    print(f"Training history saved to training_history.json")
-    print(f"Best model saved to best_model.pt")
+    print(f"Training history saved to {os.path.join(output_dir,'training_history.json')}")
+    print(f"Best model saved to {os.path.join(output_dir,'best_model.pt')}")
 
 
 if __name__ == "__main__":
