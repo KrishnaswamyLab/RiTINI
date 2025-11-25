@@ -9,7 +9,7 @@ from ritini.data.trajectory_loader import prepare_trajectories_data
 from ritini.data.temporal_graph import TemporalGraphDataset
 from ritini.utils.attention_graphs import adjacency_to_edge_index
 
-def visualize_predictions(model_path='best_model_genes.pt', 
+def visualize_predictions(model_path='output/best_model.pt', 
                           time_window=5, history_length=5, batch_size=4, device='cpu'):
     """
     Visualize gene expression predictions with history encoder.
@@ -79,7 +79,7 @@ def visualize_predictions(model_path='best_model_genes.pt',
     t_eval = torch.arange(1, time_window, device=device) * dt
     
     # Create plots directory
-    plots_dir = Path("plots_genes")
+    plots_dir = Path("output/plots_genes")
     plots_dir.mkdir(exist_ok=True)
     
     # Select 6 genes to plot (choose most variable ones for interesting plots)
