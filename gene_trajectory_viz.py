@@ -3,34 +3,66 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from torch.utils.data import DataLoader
+import argparse
+import os
 
-from ritini.models.RiTINI import RiTINI
 from ritini.data.trajectory_loader import prepare_trajectories_data
 from ritini.data.temporal_graph import TemporalGraphDataset
+from ritini.utils.utils import load_config, get_device, load_trained_model
 from ritini.utils.attention_graphs import adjacency_to_edge_index
 
-def visualize_predictions(model_path='output/best_model.pt', 
-                          time_window=5, history_length=5, batch_size=4, device='cpu'):
+
+def main(checkpoint_path: str, visualization_config_path: str):
+    """Main visualization pipeline for gene expression predictions.
+    
+    Args:
+        checkpoint_path: Path to the saved model checkpoint (.pt file).
+                        The config.yaml is expected to be in the same directory.
     """
-    Visualize gene expression predictions with history encoder.
-    """
-    print("Loading data and model...")
     
-    # Data paths
-    processed_trajectory_file = 'data/processed/trajectory.npy' 
-    prior_adjacency_file = 'data/processed/prior_adjacency.npy'
-    gene_names_file = 'data/processed/gene_names.txt'    
+    # Derive paths from checkpoint location
+    output_dir = os.path.dirname(checkpoint_path)
+    config_path = os.path.join(output_dir, 'config.yaml')
     
-    # Load model checkpoint first to get n_genes
-    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
-    n_genes_from_checkpoint = checkpoint.get('n_genes', None)
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found at {config_path}. "
+                               f"Expected config.yaml in the same directory as checkpoint.")
     
-    # Load gene data
-    # Prepare input data
+    # Load configuration
+    config = load_config(config_path)
+    
+    # Device configuration
+    device = get_device(config['device'])
+    print(f"Using device: {device}")
+    
+    # Model config
+    model_config = config['model']
+    
+    # Batching parameters
+    time_window = config['batching']['time_window']
+    history_length = config['batching'].get('history_length', time_window)
+    batch_size = config['batching'].get('batch_size', 4)
+    
+    # Data paths (could also be in config)
+    trajectory_file = config.get('data', {}).get('trajectory_file', 'data/processed/trajectory.npy')
+    prior_graph_adjacency_file = config.get('data', {}).get('prior_adjacency_file', 'data/processed/prior_adjacency.npy')
+    gene_names_file = config.get('data', {}).get('gene_names_file', 'data/processed/gene_names.txt')
+    
+    # Visualization config
+    viz_config = load_config(visualization_config_path)
+    dt = viz_config.get('dt', 0.1)
+    
+    # Output configuration
+    plots_dir = Path(output_dir) / viz_config['plots_dir']
+    plots_dir.mkdir(exist_ok=True)
+    
+    # Load data
+    print("\nLoading data...")
     data = prepare_trajectories_data(
-        trajectory_file=processed_trajectory_file,
-        prior_graph_adjacency_file=prior_adjacency_file,
-        gene_names_file=gene_names_file)
+        trajectory_file=trajectory_file,
+        prior_graph_adjacency_file=prior_graph_adjacency_file,
+        gene_names_file=gene_names_file
+    )
     
     trajectories = data['trajectories']
     gene_names = data['gene_names']
@@ -38,147 +70,42 @@ def visualize_predictions(model_path='output/best_model.pt',
     n_genes = data['n_genes']
     n_timepoints = data['n_timepoints']
     
-    prior_adjacency = torch.tensor(prior_adjacency, dtype=torch.float32).to(device)  # Shape: (n_genes, n_genes)
+    prior_adjacency = torch.tensor(prior_adjacency, dtype=torch.float32).to(device)
     
     # Extract trajectory
     trajectory_idx = 0
     signals = trajectories[:, trajectory_idx, :].astype(np.float32)
     
-    # Load model checkpoint
-    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+    print(f"  Trajectories shape: {trajectories.shape}")
+    print(f"  Number of genes: {n_genes}")
+    print(f"  Number of timepoints: {n_timepoints}")
+    print(f"  Gene names: {gene_names[:5]}..." if len(gene_names) > 5 else f"  Gene names: {gene_names}")
     
-    # Get normalization from checkpoint
-    mean = checkpoint['mean']
-    std = checkpoint['std']
+    # Load trained model
+    print("\nLoading trained model...")
+    model, _, mean, std = load_trained_model(checkpoint_path, model_config, device)
+    
+    print(f"  Model loaded from {checkpoint_path}")
+    print(f"  Normalization: mean={mean:.3f}, std={std:.3f}")
     
     # Normalize signals
     signals_normalized = (signals - mean) / std
     train_node_features = torch.tensor(signals_normalized, dtype=torch.float32)
     
-    # Load model
-    model = RiTINI(
-        in_features=1,
-        out_features=1,
-        latent_dim=16,
-        history_length=history_length,
-        n_heads=1,
-        feat_dropout=0.0,
-        attn_dropout=0.0,
-        device=device
-    ).to(device)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model.eval()
-    
-    print(f"Model loaded. Best training loss: {checkpoint['loss']:.6f}")
-    print(f"Number of genes: {n_genes}")
-    print(f"Number of timepoints: {n_timepoints}")
-    
     # Get edge_index
     edge_index = adjacency_to_edge_index(prior_adjacency).to(device)
-    dt = 0.1
     t_eval = torch.arange(1, time_window, device=device) * dt
-    
-    # Create plots directory
-    plots_dir = Path("output/plots_genes")
-    plots_dir.mkdir(exist_ok=True)
     
     # Select 6 genes to plot (choose most variable ones for interesting plots)
     gene_variances = np.var(signals, axis=0)
     top_gene_indices = np.argsort(gene_variances)[-6:][::-1]
     
-    time = np.arange(n_timepoints) * 0.1
-    
-    # # ============================================================
-    # # PLOT 1: Single Window Close-up
-    # # ============================================================
-    # print("Creating Plot 1: Single window close-up...")
-    
-    # start_t = 50  # Middle of trajectory
-    # fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-    # axes = axes.flatten()
-    
-    # with torch.no_grad():
-    #     x_history = train_node_features[start_t-history_length:start_t].T.unsqueeze(-1).to(device)
-    #     pred_traj, _ = model(x_history, edge_index, t_eval)
-    #     pred_traj = pred_traj.squeeze(-1).cpu().numpy()
-    #     # Denormalize
-    #     pred_traj = pred_traj * std + mean
-    
-    # for plot_idx, gene_idx in enumerate(top_gene_indices):
-    #     ax = axes[plot_idx]
-        
-    #     window_times = time[start_t:start_t+time_window]
-    #     window_truth = signals[start_t:start_t+time_window, gene_idx]
-        
-    #     ax.plot(window_times, window_truth, 'ko-', linewidth=2, markersize=8, 
-    #             label='Ground Truth', alpha=0.8)
-        
-    #     pred_times = time[start_t+1:start_t+time_window]
-    #     ax.plot(pred_times, pred_traj[:, gene_idx], 'ro-', linewidth=2, markersize=8,
-    #             label='Prediction', alpha=0.8)
-        
-    #     ax.plot(window_times[0], window_truth[0], 'bs', markersize=12, 
-    #             label='Initial Condition')
-        
-    #     ax.set_xlabel('Time (s)', fontsize=11)
-    #     ax.set_ylabel('Expression', fontsize=11)
-    #     ax.set_title(f'{gene_names[gene_idx]}', fontsize=12)
-    #     ax.grid(alpha=0.3)
-    #     if plot_idx == 0:
-    #         ax.legend(fontsize=9)
-    
-    # plt.suptitle(f'Single Window: 4-Step Prediction from t={start_t*0.1:.1f}s', fontsize=16)
-    # plt.tight_layout()
-    
-    # save_path = plots_dir / "prediction_single_window.png"
-    # plt.savefig(save_path, dpi=200, bbox_inches='tight')
-    # plt.close()
-    # print(f"Saved: {save_path}")
-    
-    # # ============================================================
-    # # PLOT 2: Multiple Non-Overlapping Windows
-    # # ============================================================
-    # print("Creating Plot 2: Multiple non-overlapping windows...")
-    
-    # window_starts = range(history_length, n_timepoints - time_window, 15)
-    
-    # fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-    # axes = axes.flatten()
-    
-    # with torch.no_grad():
-    #     for plot_idx, gene_idx in enumerate(top_gene_indices):
-    #         ax = axes[plot_idx]
-            
-    #         ax.plot(time, signals[:, gene_idx], 'k-', linewidth=0.5, alpha=0.3)
-            
-    #         for start_t in window_starts:
-    #             x_history = train_node_features[start_t-history_length:start_t].T.unsqueeze(-1).to(device)
-    #             pred_traj, _ = model(x_history, edge_index, t_eval)
-    #             pred_traj = pred_traj.squeeze(-1).cpu().numpy()
-    #             pred_traj = pred_traj * std + mean
-                
-    #             pred_times = time[start_t+1:start_t+time_window]
-    #             ax.plot(pred_times, pred_traj[:, gene_idx], 'r-', linewidth=2, alpha=0.7)
-                
-    #             ax.plot(time[start_t], signals[start_t, gene_idx], 'bs', markersize=6)
-            
-    #         ax.set_xlabel('Time (s)', fontsize=11)
-    #         ax.set_ylabel('Expression', fontsize=11)
-    #         ax.set_title(f'{gene_names[gene_idx]}', fontsize=12)
-    #         ax.grid(alpha=0.3)
-    
-    # plt.suptitle('Multiple Non-Overlapping 4-Step Predictions', fontsize=16)
-    # plt.tight_layout()
-    
-    # save_path = plots_dir / "prediction_multiple_windows.png"
-    # plt.savefig(save_path, dpi=200, bbox_inches='tight')
-    # plt.close()
-    # print(f"Saved: {save_path}")
+    time = np.arange(n_timepoints) * dt
     
     # ============================================================
-    # PLOT 3: Autoregressive Rollout
+    # PLOT 1: Autoregressive Rollout
     # ============================================================
-    print("Creating Plot 3: Autoregressive rollout...")
+    print("\nCreating Plot: Autoregressive rollout...")
     
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
     axes = axes.flatten()
@@ -204,13 +131,12 @@ def visualize_predictions(model_path='output/best_model.pt',
     
     rollout_predictions = np.array(rollout_predictions)
     rollout_predictions = rollout_predictions * std + mean
-    rollout_times = np.array(rollout_times) * 0.1
+    rollout_times = np.array(rollout_times) * dt
     
     for plot_idx, gene_idx in enumerate(top_gene_indices):
         ax = axes[plot_idx]
         
         ax.plot(time, signals[:, gene_idx], 'k-', linewidth=2, label='Ground Truth', alpha=0.8)
-        
         ax.plot(rollout_times, rollout_predictions[:, gene_idx], 'r-', linewidth=2, 
                 label='Autoregressive', alpha=0.8)
         
@@ -227,12 +153,12 @@ def visualize_predictions(model_path='output/best_model.pt',
     save_path = plots_dir / "prediction_autoregressive.png"
     plt.savefig(save_path, dpi=200, bbox_inches='tight')
     plt.close()
-    print(f"Saved: {save_path}")
+    print(f"  Saved: {save_path}")
     
     # ============================================================
-    # PLOT 4: Mean ± Std
+    # PLOT 2: Mean ± Std
     # ============================================================
-    print("Creating mean ± std plot...")
+    print("Creating Plot: Mean ± std...")
     
     dataset = TemporalGraphDataset(
         node_features=train_node_features,
@@ -306,11 +232,23 @@ def visualize_predictions(model_path='output/best_model.pt',
     save_path = plots_dir / "prediction_mean_std.png"
     plt.savefig(save_path, dpi=200, bbox_inches='tight')
     plt.close()
-    print(f"Saved: {save_path}")
+    print(f"  Saved: {save_path}")
     
-    print("\nAll visualizations complete!")
-    print(f"Plots saved in: {plots_dir}/")
+    print("\n" + "="*60)
+    print(f"All visualizations saved to: {plots_dir}")
+    print("="*60)
+    
+    return rollout_predictions, rollout_times
+
 
 if __name__ == "__main__":
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    visualize_predictions(device=device, history_length=5)
+    parser = argparse.ArgumentParser(description='Visualize RiTINI gene expression predictions')
+    parser.add_argument('--checkpoint', type=str, required=True,
+                        help='Path to model checkpoint (.pt file)')
+    parser.add_argument('--visualization-config', type=str, required=False, default='configs/visualization.yaml',
+                        help='Path to the visualization config file (.yaml file) [default: configs/visualization.yaml]')
+    args = parser.parse_args()
+    
+    main(checkpoint_path=args.checkpoint,visualization_config_path=args.visualization_config)
+
+# Usage: uv run visualize_predictions.py --checkpoint /path/to/output/best_model.pt

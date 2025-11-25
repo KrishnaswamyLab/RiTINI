@@ -13,7 +13,7 @@ from ritini.models.RiTINI import RiTINI
 from ritini.train import train_epoch
 from ritini.utils.preprocess import process_trajectory_data
 
-def main(config_path: str = 'config/config.yaml'):
+def main(config_path: str = 'configs/config.yaml'):
     # Load configuration
     config = load_config(config_path)
     

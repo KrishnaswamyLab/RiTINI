@@ -1,7 +1,7 @@
 from ritini.utils.utils import load_config, get_device
 from ritini.utils.preprocess import process_trajectory_data
 
-def preprocess(config_path: str = 'config/config.yaml'):
+def preprocess(config_path: str = 'configs/config.yaml'):
     # Load configuration
     config = load_config(config_path)
     

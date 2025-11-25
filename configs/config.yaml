@@ -47,7 +47,7 @@ training:
 
 # Loss configuration
 loss:
-  graph_reg_weight: 0.01
+  graph_reg_weight: 0.00  # Weight for graph regularization loss
 
 # Learning rate scheduler
 scheduler:
