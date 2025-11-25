@@ -11,7 +11,9 @@ from ritini.utils.prior_graph import compute_prior_adjacency
 def process_trajectory_data(raw_trajectory_file, 
                             raw_gene_names_file,
                             interest_genes_file,
-                            output_dir='data/processed/',
+                            output_trajectory_file='data/processed/trajectory.npy',
+                            output_gene_names_file='data/processed/gene_names.txt',
+                            output_prior_adjacency_file='data/processed/prior_adjacency.npy',
                             prior_graph_mode='granger_causality',
                             n_highly_variable_genes=200,
                             **kwargs):
@@ -76,20 +78,16 @@ def process_trajectory_data(raw_trajectory_file,
                                                                      **kwargs)
 
     # Save processed files to processed path
-    trajectory_file = os.path.join(output_dir,'trajectory.npy')
-    prior_graph_adjacency_file = os.path.join(output_dir,'prior_adjacency.npy')
-    gene_names_file = os.path.join(output_dir,'gene_names.txt')
 
-
-    np.save(trajectory_file, filtered_trajectory)
-    np.save(prior_graph_adjacency_file, prior_adjacency)
+    np.save(output_trajectory_file, filtered_trajectory)
+    np.save(output_prior_adjacency_file, prior_adjacency)
 
     # Save gene names as text file (one per line)
-    with open(gene_names_file, 'w') as f:
+    with open(output_gene_names_file, 'w') as f:
         for gene in gene_names_in_prior:
             f.write(f"{gene}\n")
 
-    return trajectory_file, prior_graph_adjacency_file, gene_names_file
+    return output_trajectory_file, output_prior_adjacency_file, output_gene_names_file
 
 
 if __name__ == "__main__":

@@ -6,11 +6,19 @@ device: auto  # 'auto', 'cuda', or 'cpu'
 
 # Data paths
 data:
-  raw_trajectory_file: data/raw/traj_data.npy
-  raw_gene_names_file: data/raw/gene_names.txt
-  interest_genes_file: data/raw/interest_genes.txt
+  raw:
+    trajectory_file: data/raw/traj_data.npy
+    gene_names_file: data/raw/gene_names.txt
+    interest_genes_file: data/raw/interest_genes.txt
+
   prior_graph_mode: fully_connected  # Options: granger_causality, fully_connected, identity, zeros
   n_highly_variable_genes: 20  # Number of highly variable genes to select
+  
+  processed:
+    trajectory_file: data/processed/trajectory.npy
+    gene_names_file: data/processed/gene_names.txt
+    prior_graph_adjacency_file: data/processed/prior_adjacency.npy
+
 
 # Data batching
 batching:
