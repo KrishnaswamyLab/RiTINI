@@ -51,6 +51,7 @@ def main(checkpoint_path: str, visualization_config_path: str):
     # Visualization config
     viz_config = load_config(visualization_config_path)
     dt = viz_config.get('dt', 0.1)
+    n_genes_to_plot = viz_config.get('n_genes_to_plot', None)  # None = all genes
     
     # Output configuration
     plots_dir = Path(output_dir) / viz_config['plots_dir']
@@ -96,9 +97,17 @@ def main(checkpoint_path: str, visualization_config_path: str):
     edge_index = adjacency_to_edge_index(prior_adjacency).to(device)
     t_eval = torch.arange(1, time_window, device=device) * dt
     
-    # Select 6 genes to plot (choose most variable ones for interesting plots)
+    # Select genes to plot
     gene_variances = np.var(signals, axis=0)
-    top_gene_indices = np.argsort(gene_variances)[-6:][::-1]
+    if n_genes_to_plot is None:
+        # Plot all genes
+        gene_indices = np.arange(n_genes)
+    else:
+        # Plot top n genes by variance
+        gene_indices = np.argsort(gene_variances)[-n_genes_to_plot:][::-1]
+    
+    n_genes_plot = len(gene_indices)
+    print(f"\nPlotting {n_genes_plot} genes (out of {n_genes} total)")
     
     time = np.arange(n_timepoints) * dt
     
@@ -107,8 +116,20 @@ def main(checkpoint_path: str, visualization_config_path: str):
     # ============================================================
     print("\nCreating Plot: Autoregressive rollout...")
     
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-    axes = axes.flatten()
+    # Calculate grid dimensions
+    n_cols = min(3, n_genes_plot)
+    n_rows = (n_genes_plot + n_cols - 1) // n_cols
+    fig_height = 5 * n_rows
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6*n_cols, fig_height))
+    
+    # Handle case where there's only 1 subplot
+    if n_genes_plot == 1:
+        axes = np.array([axes])
+    elif n_rows == 1:
+        axes = axes.reshape(1, -1)
+    
+    axes_flat = axes.flatten()
     
     current_t = history_length
     rollout_predictions = []
@@ -133,8 +154,8 @@ def main(checkpoint_path: str, visualization_config_path: str):
     rollout_predictions = rollout_predictions * std + mean
     rollout_times = np.array(rollout_times) * dt
     
-    for plot_idx, gene_idx in enumerate(top_gene_indices):
-        ax = axes[plot_idx]
+    for plot_idx, gene_idx in enumerate(gene_indices):
+        ax = axes_flat[plot_idx]
         
         ax.plot(time, signals[:, gene_idx], 'k-', linewidth=2, label='Ground Truth', alpha=0.8)
         ax.plot(rollout_times, rollout_predictions[:, gene_idx], 'r-', linewidth=2, 
@@ -146,6 +167,10 @@ def main(checkpoint_path: str, visualization_config_path: str):
         ax.grid(alpha=0.3)
         if plot_idx == 0:
             ax.legend(fontsize=10)
+    
+    # Hide unused subplots
+    for idx in range(n_genes_plot, len(axes_flat)):
+        axes_flat[idx].set_visible(False)
     
     plt.suptitle('Autoregressive Rollout: Long-Term Prediction', fontsize=16)
     plt.tight_layout()
@@ -186,11 +211,18 @@ def main(checkpoint_path: str, visualization_config_path: str):
                 all_start_indices.append(window_idx + history_length)
                 window_idx += 1
     
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-    axes = axes.flatten()
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6*n_cols, fig_height))
     
-    for plot_idx, gene_idx in enumerate(top_gene_indices):
-        ax = axes[plot_idx]
+    # Handle case where there's only 1 subplot
+    if n_genes_plot == 1:
+        axes = np.array([axes])
+    elif n_rows == 1:
+        axes = axes.reshape(1, -1)
+    
+    axes_flat = axes.flatten()
+    
+    for plot_idx, gene_idx in enumerate(gene_indices):
+        ax = axes_flat[plot_idx]
         
         ax.plot(time, signals[:, gene_idx], 'k-', linewidth=2, label='Ground Truth', alpha=0.8)
         
@@ -225,6 +257,10 @@ def main(checkpoint_path: str, visualization_config_path: str):
         ax.grid(alpha=0.3)
         if plot_idx == 0:
             ax.legend(fontsize=9)
+    
+    # Hide unused subplots
+    for idx in range(n_genes_plot, len(axes_flat)):
+        axes_flat[idx].set_visible(False)
     
     plt.suptitle('Mean ± Std Across All Sliding Windows', fontsize=16)
     plt.tight_layout()

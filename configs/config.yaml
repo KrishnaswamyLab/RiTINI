@@ -12,7 +12,7 @@ data:
     interest_genes_file: data/raw/interest_genes.txt
 
   prior_graph_mode: fully_connected  # Options: granger_causality, fully_connected, identity, zeros
-  n_highly_variable_genes: 20  # Number of highly variable genes to select
+  n_highly_variable_genes: 100  # Number of highly variable genes to select
   
   processed:
     trajectory_file: data/processed/trajectory.npy
