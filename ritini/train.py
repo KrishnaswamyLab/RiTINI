@@ -1,6 +1,5 @@
 import torch
-
-from ritini.utils.attention_graphs import adjacency_to_edge_index
+from ritini.utils.attention_graphs import adjacency_to_edge_index, attention_to_adjacency
 
 def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency, graph_reg_weight=0.0):
     """
@@ -18,7 +17,6 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
     dt = 0.1
     time_window = 5
     t_eval = torch.arange(1, time_window, device=device) * dt
-    
     for batch in dataloader:
         optimizer.zero_grad()
         
@@ -40,28 +38,26 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
             feature_loss = criterion(pred_traj, targets)
             batch_feature_loss += feature_loss
             
-            # Graph regularization loss (optional)
-            if graph_reg_weight > 0 and attention_output is not None:
-                edge_index_attn, attn_weights = attention_output
-                from ritini.utils.attention_graphs import attention_to_adjacency
-                current_adj = attention_to_adjacency(attn_weights, edge_index_attn, n_genes)
-                graph_loss = torch.sum(torch.abs(current_adj - prior_adjacency))
-                batch_graph_loss += graph_loss
+            # Graph regularization loss
+            edge_index_attn, attn_weights = attention_output
+            current_adj = attention_to_adjacency(attn_weights, edge_index_attn, n_genes)
+            graph_loss = torch.sum(torch.abs(current_adj - prior_adjacency))
+            batch_graph_loss += graph_loss
         
         # Average over batch
         batch_feature_loss = batch_feature_loss / batch_size
-        batch_graph_loss = batch_graph_loss / batch_size if graph_reg_weight > 0 else torch.tensor(0.0)
+        batch_graph_loss = batch_graph_loss / batch_size
         
         # Combined loss
         batch_loss = batch_feature_loss + graph_reg_weight * batch_graph_loss
         
         batch_loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         
         total_loss += batch_loss.item()
         total_feature_loss += batch_feature_loss.item()
-        total_graph_loss += batch_graph_loss.item() if isinstance(batch_graph_loss, torch.Tensor) else 0
+        total_graph_loss += batch_graph_loss.item()
         n_samples += 1
     
     avg_loss = total_loss / n_samples

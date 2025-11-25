@@ -10,6 +10,7 @@ def adjacency_to_edge_index(adjacency):
     Returns:
         edge_index: (2, num_edges) tensor in COO format
     """
+
     edge_index = adjacency.nonzero().t().contiguous()
     return edge_index
 
@@ -39,7 +40,8 @@ def attention_to_adjacency(attention_weights, edge_index, n_nodes, threshold=0.5
     dst = edge_index[1].long()
     adjacency[src, dst] = attention_weights
 
-    # Apply threshold to make it binary
-    adjacency = (adjacency > threshold).float()
+    # # Apply threshold to make it binary
+    # TODO: verify if this is necessary: In the case we are regularizing against the previous graph.
+    # adjacency = (adjacency > threshold).float()
 
     return adjacency

@@ -14,21 +14,21 @@ class GDEFunc(nn.Module):
     def __init__(
         self, 
         gnn: nn.Module,  # Can be any GNN (GAT, GCN, etc.)
-        latent_dim: int = 5, 
+        mlp_latent_dim = [5,20], # latent_dimensions of the MLP (input, hidden)
+        
     ):
         """General GDE function class. To be passed to an ODEBlock"""
         super().__init__()
         self.gnn = gnn
-        self.latent_dim = latent_dim
         
         # small nonlinear MLP to give curvature to the vector field
         # this is f_theta in the paper
         self.mlp = nn.Sequential(
-            nn.Linear(latent_dim, 4 * latent_dim),
+            nn.Linear(mlp_latent_dim[0], mlp_latent_dim[1]),
             nn.Tanh(),
-            nn.Linear(4 * latent_dim, 4 * latent_dim),
+            nn.Linear(mlp_latent_dim[1], mlp_latent_dim[1]),
             nn.Tanh(),
-            nn.Linear(4 * latent_dim, latent_dim),
+            nn.Linear(mlp_latent_dim[1], mlp_latent_dim[0]),
         )
         
         # number of function evaluations (NFE)
@@ -39,8 +39,6 @@ class GDEFunc(nn.Module):
         
         # last attention info (optional)
         self.attention_output = None
-        # Optional MLP to map GNN aggregated features to dx/dt (f_theta)
-        self.mlp = mlp
     
     def set_graph(self, edge_index):
         """Set edge_index externally before ODE integration."""

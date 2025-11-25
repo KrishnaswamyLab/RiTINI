@@ -214,3 +214,5 @@ training_history.json
 *.jpeg
 *.svg
 *.pdf
+
+output/
