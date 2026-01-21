@@ -12,6 +12,13 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
     total_graph_loss = 0
     n_samples = 0
     
+    # Ensure prior_adjacency is binary (0s and 1s) for BCE loss
+    assert torch.all((prior_adjacency == 0) | (prior_adjacency == 1)), "prior_adjacency must be binary"
+    
+    # Remove self-loops from prior once (set diagonal to 0)
+    prior_adjacency = prior_adjacency.clone()
+    prior_adjacency.fill_diagonal_(0)
+    
     edge_index = adjacency_to_edge_index(prior_adjacency).to(device)
     
     dt = 0.1
@@ -40,9 +47,23 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
             
             # Graph regularization loss
             edge_index_attn, attn_weights = attention_output
-            current_adj = attention_to_adjacency(attn_weights, edge_index_attn, n_genes)
-            graph_loss = torch.sum(torch.abs(current_adj - prior_adjacency))
-            batch_graph_loss += graph_loss
+            
+            # GAT normalizes over incoming edges (targets), producing valid probabilities
+            # Clamp to [0, 1] to handle rare numerical precision issues (typically <0.1% of values)
+            clamped_attn = torch.clamp(attn_weights, 0.0, 1.0)
+            
+            current_adj = attention_to_adjacency(clamped_attn, edge_index_attn, n_genes)
+            
+            # Verify no self-loops exist (diagonal should be 0)
+            # Note: We don't zero it here as that would break softmax normalization if self-loops existed
+            # Instead, we prevent self-loops at the source (prior adjacency + add_self_loops=False)
+            assert torch.allclose(torch.diag(current_adj), torch.zeros(n_genes, device=current_adj.device)), \
+                "Self-loops detected in attention! This should not happen."
+            
+            # Binary cross-entropy: current_adj has probabilities (post-softmax), prior is binary
+            # Normalize by number of possible edges (n_genes^2) for scale-invariance
+            bce_loss = torch.nn.functional.binary_cross_entropy(current_adj, prior_adjacency, reduction='mean')
+            batch_graph_loss += bce_loss
         
         # Average over batch
         batch_feature_loss = batch_feature_loss / batch_size

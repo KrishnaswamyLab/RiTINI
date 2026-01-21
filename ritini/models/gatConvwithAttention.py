@@ -11,7 +11,8 @@ class GATConvWithAttention(GATConv):
             negative_slope=negative_slope, 
             dropout=attn_dropout,  # This is attention dropout in PyG
             bias=bias,
-            concat=concat
+            concat=concat,
+            add_self_loops=False  # Prevent adding self-loops to match prior graph structure
         )
         
         
