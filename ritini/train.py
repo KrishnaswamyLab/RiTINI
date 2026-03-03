@@ -1,7 +1,7 @@
 import torch
 from ritini.utils.attention_graphs import adjacency_to_edge_index, attention_to_adjacency
 
-def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency, graph_reg_weight=0.0, sparsity_weight=0.0):
+def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency, graph_reg_weight=0.0, sparsity_weight=0.0, permissive_adjacency=None):
     """
     Train for one epoch with multi-step prediction.
     Returns: avg_loss, avg_feature_loss, avg_graph_loss, avg_sparsity_loss
@@ -20,7 +20,13 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
     prior_adjacency = prior_adjacency.clone()
     prior_adjacency.fill_diagonal_(0)
     
-    edge_index = adjacency_to_edge_index(prior_adjacency).to(device)
+    if permissive_adjacency is not None:
+        assert torch.all((permissive_adjacency == 0) | (permissive_adjacency == 1)), "permissive_adjacency must be binary"
+        permissive_adjacency = permissive_adjacency.clone()
+        permissive_adjacency.fill_diagonal_(0)
+        edge_index = adjacency_to_edge_index(permissive_adjacency).to(device)
+    else:
+        edge_index = adjacency_to_edge_index(prior_adjacency).to(device)
     
     dt = 0.1
     time_window = 5
