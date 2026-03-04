@@ -1,15 +1,28 @@
 import torch
 from ritini.utils.attention_graphs import adjacency_to_edge_index, attention_to_adjacency
 
-def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency, graph_reg_weight=0.0):
+def train_epoch(
+    model,
+    dataloader,
+    optimizer,
+    criterion,
+    device,
+    n_genes,
+    prior_adjacency,
+    graph_reg_weight=0.0,
+    sparsity_weight=0.0,
+):
     """
     Train for one epoch with multi-step prediction.
-    Returns: avg_loss, avg_feature_loss, avg_graph_loss
+    Returns: avg_loss, avg_feature_loss, avg_graph_loss, avg_sparsity_loss
     """
     model.train()
+    graph_reg_weight = float(graph_reg_weight)
+    sparsity_weight = float(sparsity_weight)
     total_loss = 0
     total_feature_loss = 0
     total_graph_loss = 0
+    total_sparsity_loss = 0
     n_samples = 0
     
     # Ensure prior_adjacency is binary (0s and 1s) for BCE loss
@@ -33,6 +46,7 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
         
         batch_feature_loss = 0
         batch_graph_loss = 0
+        batch_sparsity_loss = 0
         
         for b in range(batch_size):
             x_history = history[b].T.unsqueeze(-1)
@@ -51,9 +65,7 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
             # GAT normalizes over incoming edges (targets), producing valid probabilities
             # Clamp to [0, 1] to handle rare numerical precision issues (typically <0.1% of values)
             clamped_attn = torch.clamp(attn_weights, 0.0, 1.0)
-            
             current_adj = attention_to_adjacency(clamped_attn, edge_index_attn, n_genes)
-            
             # Verify no self-loops exist (diagonal should be 0)
             # Note: We don't zero it here as that would break softmax normalization if self-loops existed
             # Instead, we prevent self-loops at the source (prior adjacency + add_self_loops=False)
@@ -64,13 +76,23 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
             # Normalize by number of possible edges (n_genes^2) for scale-invariance
             bce_loss = torch.nn.functional.binary_cross_entropy(current_adj, prior_adjacency, reduction='mean')
             batch_graph_loss += bce_loss
+
+            # Entropy sparsity loss: lower entropy => sharper/sparser attention distributions
+            eps = 1e-8
+            entropy_loss = -torch.mean(clamped_attn * torch.log(clamped_attn + eps))
+            batch_sparsity_loss += entropy_loss
         
         # Average over batch
         batch_feature_loss = batch_feature_loss / batch_size
         batch_graph_loss = batch_graph_loss / batch_size
-        
+        batch_sparsity_loss = batch_sparsity_loss / batch_size
+
         # Combined loss
-        batch_loss = batch_feature_loss + graph_reg_weight * batch_graph_loss
+        batch_loss = (
+            batch_feature_loss
+            + graph_reg_weight * batch_graph_loss
+            + sparsity_weight * batch_sparsity_loss
+        )
         
         batch_loss.backward()
         # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -79,10 +101,12 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
         total_loss += batch_loss.item()
         total_feature_loss += batch_feature_loss.item()
         total_graph_loss += batch_graph_loss.item()
+        total_sparsity_loss += batch_sparsity_loss.item()
         n_samples += 1
     
     avg_loss = total_loss / n_samples
     avg_feature_loss = total_feature_loss / n_samples
     avg_graph_loss = total_graph_loss / n_samples
+    avg_sparsity_loss = total_sparsity_loss / n_samples
     
-    return avg_loss, avg_feature_loss, avg_graph_loss
+    return avg_loss, avg_feature_loss, avg_graph_loss, avg_sparsity_loss

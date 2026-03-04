@@ -7,17 +7,20 @@ device: auto  # 'auto', 'cuda', or 'cpu'
 # Data paths
 data:
   raw:
-    trajectory_file: data/raw/traj_data.npy
+    trajectory_file: data/raw/trajectories_gene_space_avg_traj_genes_by_time.npy
     gene_names_file: data/raw/gene_names.txt
     interest_genes_file: data/raw/interest_genes.txt
 
-  prior_graph_mode: fully_connected  # Options: granger_causality, fully_connected, identity, zeros
+  prior_graph_mode: granger_causality  # Options: granger_causality, fully_connected, identity, zeros
+  use_existing_prior_adjacency: false  # If true, load an existing .npy adjacency and skip prior graph computation
+  existing_prior_adjacency_file: null  # Optional path to existing .npy adjacency; when null, uses processed.prior_graph_adjacency_file
   n_highly_variable_genes: 100  # Number of highly variable genes to select
   
   processed:
     trajectory_file: data/processed/trajectory.npy
     gene_names_file: data/processed/gene_names.txt
     prior_graph_adjacency_file: data/processed/prior_adjacency.npy
+    prior_graph_plot_file: data/processed/prior_graph.png
 
 
 # Data batching
@@ -47,7 +50,8 @@ training:
 
 # Loss configuration
 loss:
-  graph_reg_weight: 0.00  # Weight for graph regularization loss
+  graph_reg_weight: 0.0003  # Weight for graph regularization loss
+  sparsity_weight: 0.0005  # Weight for entropy-based attention sparsity loss
 
 # Learning rate scheduler
 scheduler:
@@ -62,3 +66,11 @@ output:
   save_best_model: true
   save_history: true
   print_every: 10  # Print progress every N epochs
+
+# Visualization parameters
+visualization:
+  dt: 0.1
+  attention_threshold: 0.0053
+  focus_gene: "G51"        # Set to gene name (e.g., "SOX2") or index (e.g., 12) to enable focus-gene temporal plots
+  focus_mode: both        # Options: incoming, outgoing, both
+  focus_top_k: 2       # Optional integer: keep only top-k neighbors per timepoint/direction

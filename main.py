@@ -28,6 +28,8 @@ def main(config_path: str = 'configs/config.yaml'):
 
     prior_graph_mode = config['data']['prior_graph_mode']
     n_highly_variable_genes = config['data']['n_highly_variable_genes']
+    use_existing_prior_adjacency = config['data'].get('use_existing_prior_adjacency', False)
+    existing_prior_adjacency_file = config['data'].get('existing_prior_adjacency_file')
 
     # Processed data parameters from config
     trajectory_file = config['data']['processed']['trajectory_file']
@@ -58,6 +60,7 @@ def main(config_path: str = 'configs/config.yaml'):
 
     # Loss parameters
     graph_reg_weight = config['loss']['graph_reg_weight']
+    sparsity_weight = config['loss'].get('sparsity_weight', 0.0)
 
     # Scheduler configs
     scheduler_config = config['scheduler']
@@ -84,7 +87,9 @@ def main(config_path: str = 'configs/config.yaml'):
         output_gene_names_file=gene_names_file,
         output_prior_adjacency_file=prior_graph_adjacency_file,
         prior_graph_mode=prior_graph_mode,
-        n_highly_variable_genes=n_highly_variable_genes)
+        n_highly_variable_genes=n_highly_variable_genes,
+        use_existing_prior_adjacency=use_existing_prior_adjacency,
+        existing_prior_adjacency_file=existing_prior_adjacency_file)
     
     # Prepare input data
     data = prepare_trajectories_data(
@@ -174,6 +179,8 @@ def main(config_path: str = 'configs/config.yaml'):
     print(f"  Optimizer: Adam")
     print(f"  Loss function: MSE")
     print(f"  Scheduler: ReduceLROnPlateau")
+    print(f"  Graph regularization weight: {graph_reg_weight}")
+    print(f"  Sparsity regularization weight: {sparsity_weight}")
 
     # Training loop
     print(f"\nStarting training...")
@@ -181,15 +188,24 @@ def main(config_path: str = 'configs/config.yaml'):
     training_history = []
 
     for epoch in tqdm(range(n_epochs)):
-        epoch_loss, epoch_feature_loss, epoch_graph_loss = train_epoch(
-            model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency,graph_reg_weight
+        epoch_loss, epoch_feature_loss, epoch_graph_loss, epoch_sparsity_loss = train_epoch(
+            model,
+            dataloader,
+            optimizer,
+            criterion,
+            device,
+            n_genes,
+            prior_adjacency,
+            graph_reg_weight,
+            sparsity_weight,
         )
         
         # Store all loss components
         training_history.append({
             'total_loss': epoch_loss,
             'feature_loss': epoch_feature_loss,
-            'graph_loss': epoch_graph_loss
+            'graph_loss': epoch_graph_loss,
+            'sparsity_loss': epoch_sparsity_loss
         })
 
         # Update scheduler (use total loss)
@@ -205,6 +221,7 @@ def main(config_path: str = 'configs/config.yaml'):
                 'loss': best_loss,
                 'feature_loss': epoch_feature_loss,
                 'graph_loss': epoch_graph_loss,
+                'sparsity_loss': epoch_sparsity_loss,
                 'n_genes': n_genes,
                 'mean': mean.item(),
                 'std': std.item(),
@@ -216,6 +233,7 @@ def main(config_path: str = 'configs/config.yaml'):
                 f"Total Loss: {epoch_loss:.6f}, "
                 f"Feature Loss: {epoch_feature_loss:.6f}, "
                 f"Graph Loss: {epoch_graph_loss:.6f}, "
+                f"Sparsity Loss: {epoch_sparsity_loss:.6f}, "
                 f"Best Loss: {best_loss:.6f}")
 
     print(f"\nTraining completed!")

@@ -16,12 +16,14 @@ def preprocess(config_path: str = 'configs/config.yaml'):
 
     prior_graph_mode = config['data']['prior_graph_mode']
     n_highly_variable_genes = config['data']['n_highly_variable_genes']
+    use_existing_prior_adjacency = config['data'].get('use_existing_prior_adjacency', False)
+    existing_prior_adjacency_file = config['data'].get('existing_prior_adjacency_file')
 
     # Processed data parameters from config
     trajectory_file = config['data']['processed']['trajectory_file']
     gene_names_file = config['data']['processed']['gene_names_file']
     prior_graph_adjacency_file = config['data']['processed']['prior_graph_adjacency_file']
-
+    prior_graph_output_plot = config['data']['processed']['prior_graph_plot_file']
     # Preprocess input data
     process_trajectory_data(
         raw_trajectory_file,
@@ -30,8 +32,11 @@ def preprocess(config_path: str = 'configs/config.yaml'):
         output_trajectory_file=trajectory_file,
         output_gene_names_file=gene_names_file,
         output_prior_adjacency_file=prior_graph_adjacency_file,
+        output_prior_graph_plot_file=prior_graph_output_plot,
         prior_graph_mode=prior_graph_mode,
-        n_highly_variable_genes=n_highly_variable_genes)
+        n_highly_variable_genes=n_highly_variable_genes,
+        use_existing_prior_adjacency=use_existing_prior_adjacency,
+        existing_prior_adjacency_file=existing_prior_adjacency_file)
     
     print(f"\nData preprocessed successfully:")
 

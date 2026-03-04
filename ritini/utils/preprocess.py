@@ -1,12 +1,80 @@
-import os
-import pickle
 import numpy as np
 from pathlib import Path
-from typing import Dict, Tuple, Optional
-import torch
-import anndata
-import scanpy as sc
+import matplotlib.pyplot as plt
+import networkx as nx
 from ritini.utils.prior_graph import compute_prior_adjacency
+
+
+def _plot_prior_adjacency(prior_adjacency, gene_names, output_path):
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    n_genes = prior_adjacency.shape[0]
+    graph = nx.from_numpy_array(np.asarray(prior_adjacency), create_using=nx.DiGraph)
+
+    # Remove zero-weight edges for a cleaner visualization
+    edges_to_remove = [
+        (u, v) for u, v, data in graph.edges(data=True)
+        if data.get('weight', 0.0) <= 0
+    ]
+    graph.remove_edges_from(edges_to_remove)
+
+    if graph.number_of_nodes() == 0:
+        plt.figure(figsize=(8, 6))
+        plt.title('Prior graph (empty)')
+        plt.text(0.5, 0.5, 'No edges in prior graph', ha='center', va='center')
+        plt.axis('off')
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        return
+
+    node_labels = {i: gene_names[i] if i < len(gene_names) else str(i) for i in graph.nodes()}
+    edge_weights = np.array([data['weight'] for _, _, data in graph.edges(data=True)], dtype=float)
+
+    if edge_weights.size > 0:
+        min_w = float(edge_weights.min())
+        max_w = float(edge_weights.max())
+        if max_w > min_w:
+            widths = 0.5 + 2.5 * (edge_weights - min_w) / (max_w - min_w)
+        else:
+            widths = np.full_like(edge_weights, 1.5)
+    else:
+        widths = np.array([])
+
+    figsize = (12, 10) if n_genes <= 80 else (14, 12)
+    plt.figure(figsize=figsize)
+    pos = nx.spring_layout(graph, seed=42)
+
+    nx.draw_networkx_nodes(
+        graph,
+        pos,
+        node_size=300 if n_genes <= 80 else 160,
+        node_color='lightblue',
+        edgecolors='black',
+        linewidths=0.5,
+    )
+
+    nx.draw_networkx_edges(
+        graph,
+        pos,
+        width=widths.tolist() if widths.size > 0 else 1.0,
+        alpha=0.7,
+        arrows=True,
+        arrowsize=12,
+        edge_color='gray',
+        connectionstyle='arc3,rad=0.08',
+    )
+
+    if n_genes <= 40:
+        nx.draw_networkx_labels(graph, pos, labels=node_labels, font_size=7)
+
+    plt.title('Prior graph (NetworkX)')
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
 
 def process_trajectory_data(raw_trajectory_file, 
                             raw_gene_names_file,
@@ -14,28 +82,40 @@ def process_trajectory_data(raw_trajectory_file,
                             output_trajectory_file='data/processed/trajectory.npy',
                             output_gene_names_file='data/processed/gene_names.txt',
                             output_prior_adjacency_file='data/processed/prior_adjacency.npy',
+                            output_prior_graph_plot_file='data/processed/prior_graph.png',
                             prior_graph_mode='granger_causality',
                             n_highly_variable_genes=200,
+                            use_existing_prior_adjacency=False,
+                            existing_prior_adjacency_file=None,
                             **kwargs):
-
-    # Load trajectory data from file
-    trajectory_path = Path(raw_trajectory_file)
-    trajectories = np.load(trajectory_path)  # Shape: (n_timepoints, n_trajectories, n_genes)
-
-    print(f"Trajectory shape: {trajectories.shape}")
-
-    # Add trajectory dimension if needed: (n_timepoints, n_genes) -> (n_timepoints, 1, n_genes)
-    if trajectories.ndim == 2:
-        trajectories = trajectories[:, np.newaxis, :]
-
-    # Average across trajectories dimension
-    trajectory = trajectories.mean(axis=1, keepdims=True)  # Shape: (n_timepoints, 1, n_genes)
-    # Squeeze trajectory dimension for prior computation
-    trajectory = trajectory.squeeze(axis=1)  # Shape: (n_timepoints, n_genes)
 
     gene_names_path = Path(raw_gene_names_file)
     with open(gene_names_path, "r") as f:
         gene_names = [line.strip() for line in f.readlines()]
+
+    # Load a single trajectory matrix from file.
+    # Expected shape is genes x time, but time x genes is also accepted.
+    trajectory_path = Path(raw_trajectory_file)
+    trajectory = np.load(trajectory_path)
+    if trajectory.ndim != 2:
+        raise ValueError(
+            f"Expected a single 2D trajectory matrix, got shape {trajectory.shape}."
+        )
+
+    print(f"Trajectory shape: {trajectory.shape}")
+
+    n_genes = len(gene_names)
+    if trajectory.shape[0] == n_genes and trajectory.shape[1] != n_genes:
+        trajectory_gene_time = trajectory
+    elif trajectory.shape[1] == n_genes and trajectory.shape[0] != n_genes:
+        trajectory_gene_time = trajectory.T
+    elif trajectory.shape[0] == n_genes and trajectory.shape[1] == n_genes:
+        # Ambiguous square matrix; default to genes x time per expected convention.
+        trajectory_gene_time = trajectory
+    else:
+        raise ValueError(
+            f"Gene names count ({n_genes}) does not match either trajectory dimension {trajectory.shape}."
+        )
 
     # Load interest genes
     interest_genes_path = Path(interest_genes_file)
@@ -44,43 +124,70 @@ def process_trajectory_data(raw_trajectory_file,
         interest_genes = [line.strip() for line in f.readlines()]
 
 
-    # Filter genes based on highly variable genes
-    # Create AnnData object for scanpy
-    adata = anndata.AnnData(X=trajectory)
-    adata.var_names = gene_names
-
     print(f"Identifying {n_highly_variable_genes} highly variable genes.")
-    # Identify highly variable genes
-    sc.pp.highly_variable_genes(
-        adata,
-        n_top_genes=n_highly_variable_genes,
-    )
+    # Highly variable genes are those with largest variance across time.
+    gene_variances = np.var(trajectory_gene_time, axis=1)
+    top_k = min(n_highly_variable_genes, trajectory_gene_time.shape[0])
+    highly_variable_genes_idx = np.argsort(gene_variances)[-top_k:][::-1]
+    highly_variable_genes = [gene_names[idx] for idx in highly_variable_genes_idx]
 
-    # Get indices of highly variable genes
-    highly_variable_genes_idx = np.where(adata.var['highly_variable'])[0]
-    highly_variable_genes = adata.var_names[highly_variable_genes_idx].tolist()
-
-    # Get indices of interest genes
-    selected_genes = highly_variable_genes + interest_genes
-
-    # Filter trajectories to highly variable + interest genes
+    # Combine HVGs + interest genes while preserving order and uniqueness
+    selected_genes = list(dict.fromkeys(highly_variable_genes + interest_genes))
+    # Filter trajectory to highly variable + interest genes
     # Convert gene names to indices using a dictionary lookup
-    gene_name_to_idx = {name: idx for idx, name in enumerate(adata.var_names)}
-    selected_gene_indices = np.array([gene_name_to_idx[gene] for gene in selected_genes])
+    gene_name_to_idx = {name: idx for idx, name in enumerate(gene_names)}
+    selected_gene_indices = np.array(
+        [gene_name_to_idx[gene] for gene in selected_genes if gene in gene_name_to_idx],
+        dtype=int,
+    )
     
-    filtered_trajectory = trajectory[:, selected_gene_indices]
-    filtered_gene_names = adata.var_names[selected_gene_indices]
+    filtered_trajectory = trajectory_gene_time[selected_gene_indices, :].T
+    filtered_gene_names = [gene_names[idx] for idx in selected_gene_indices]
 
-    # Compute prior adjacency matrix and retrieve the corresponding gene names
-    prior_adjacency, gene_names_in_prior = compute_prior_adjacency(filtered_trajectory,
-                                                                     mode=prior_graph_mode, 
-                                                                     gene_names=filtered_gene_names, 
-                                                                     **kwargs)
+    if use_existing_prior_adjacency:
+        source_prior_file = existing_prior_adjacency_file or output_prior_adjacency_file
+        source_prior_path = Path(source_prior_file)
+        if not source_prior_path.exists():
+            raise FileNotFoundError(
+                f"Expected existing prior adjacency file at {source_prior_path}, but it does not exist."
+            )
+
+        prior_adjacency = np.load(source_prior_path)
+        if prior_adjacency.ndim != 2 or prior_adjacency.shape[0] != prior_adjacency.shape[1]:
+            raise ValueError(
+                f"Existing prior adjacency must be a square 2D matrix. Got shape {prior_adjacency.shape}."
+            )
+
+        expected_genes = len(filtered_gene_names)
+        if prior_adjacency.shape[0] != expected_genes:
+            raise ValueError(
+                "Existing prior adjacency shape does not match filtered gene count: "
+                f"got {prior_adjacency.shape}, expected ({expected_genes}, {expected_genes})."
+            )
+
+        gene_names_in_prior = filtered_gene_names
+    else:
+        # Compute prior adjacency matrix and retrieve the corresponding gene names
+        prior_adjacency, gene_names_in_prior = compute_prior_adjacency(filtered_trajectory,
+                                                                        mode=prior_graph_mode, 
+                                                                        gene_names=filtered_gene_names, 
+                                                                        **kwargs)
 
     # Save processed files to processed path
 
+    Path(output_trajectory_file).parent.mkdir(parents=True, exist_ok=True)
+    Path(output_prior_adjacency_file).parent.mkdir(parents=True, exist_ok=True)
+    Path(output_gene_names_file).parent.mkdir(parents=True, exist_ok=True)
+
     np.save(output_trajectory_file, filtered_trajectory)
     np.save(output_prior_adjacency_file, prior_adjacency)
+
+    if output_prior_graph_plot_file is not None:
+        _plot_prior_adjacency(
+            prior_adjacency=prior_adjacency,
+            gene_names=gene_names_in_prior,
+            output_path=output_prior_graph_plot_file,
+        )
 
     # Save gene names as text file (one per line)
     with open(output_gene_names_file, 'w') as f:
