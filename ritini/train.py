@@ -1,17 +1,7 @@
 import torch
 from ritini.utils.attention_graphs import adjacency_to_edge_index, attention_to_adjacency
 
-def train_epoch(
-    model,
-    dataloader,
-    optimizer,
-    criterion,
-    device,
-    n_genes,
-    prior_adjacency,
-    graph_reg_weight=0.0,
-    sparsity_weight=0.0,
-):
+def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency, graph_reg_weight=0.0, sparsity_weight=0.0, permissive_adjacency=None):
     """
     Train for one epoch with multi-step prediction.
     Returns: avg_loss, avg_feature_loss, avg_graph_loss, avg_sparsity_loss
@@ -32,7 +22,13 @@ def train_epoch(
     prior_adjacency = prior_adjacency.clone()
     prior_adjacency.fill_diagonal_(0)
     
-    edge_index = adjacency_to_edge_index(prior_adjacency).to(device)
+    if permissive_adjacency is not None:
+        assert torch.all((permissive_adjacency == 0) | (permissive_adjacency == 1)), "permissive_adjacency must be binary"
+        permissive_adjacency = permissive_adjacency.clone()
+        permissive_adjacency.fill_diagonal_(0)
+        edge_index = adjacency_to_edge_index(permissive_adjacency).to(device)
+    else:
+        edge_index = adjacency_to_edge_index(prior_adjacency).to(device)
     
     dt = 0.1
     time_window = 5
@@ -76,8 +72,10 @@ def train_epoch(
             # Normalize by number of possible edges (n_genes^2) for scale-invariance
             bce_loss = torch.nn.functional.binary_cross_entropy(current_adj, prior_adjacency, reduction='mean')
             batch_graph_loss += bce_loss
-
-            # Entropy sparsity loss: lower entropy => sharper/sparser attention distributions
+            
+            # Entropy Sparsity loss (minimizing entropy makes attention spiky/sparse)
+            # Since attention weights are probabilities via softmax, L1 is constant (1.0 per node).
+            # Entropy provides the correct gradient for sparsity on distributions.
             eps = 1e-8
             entropy_loss = -torch.mean(clamped_attn * torch.log(clamped_attn + eps))
             batch_sparsity_loss += entropy_loss
@@ -86,13 +84,9 @@ def train_epoch(
         batch_feature_loss = batch_feature_loss / batch_size
         batch_graph_loss = batch_graph_loss / batch_size
         batch_sparsity_loss = batch_sparsity_loss / batch_size
-
+        
         # Combined loss
-        batch_loss = (
-            batch_feature_loss
-            + graph_reg_weight * batch_graph_loss
-            + sparsity_weight * batch_sparsity_loss
-        )
+        batch_loss = batch_feature_loss + graph_reg_weight * batch_graph_loss + sparsity_weight * batch_sparsity_loss
         
         batch_loss.backward()
         # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
