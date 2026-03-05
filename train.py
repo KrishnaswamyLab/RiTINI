@@ -13,7 +13,7 @@ from ritini.models.RiTINI import RiTINI
 from ritini.train import train_epoch
 from ritini.utils.preprocess import process_trajectory_data
 
-def train(config_path: str = 'config/config.yaml'):
+def train(config_path: str = 'configs/config.yaml'):
     # Load configuration
     config = load_config(config_path)
     
@@ -49,6 +49,7 @@ def train(config_path: str = 'config/config.yaml'):
 
     # Loss parameters
     graph_reg_weight = config['loss']['graph_reg_weight']
+    sparsity_weight = config['loss'].get('sparsity_weight', 0.0)
 
     # Scheduler configs
     scheduler_config = config['scheduler']
@@ -154,6 +155,8 @@ def train(config_path: str = 'config/config.yaml'):
     print(f"  Optimizer: Adam")
     print(f"  Loss function: MSE")
     print(f"  Scheduler: ReduceLROnPlateau")
+    print(f"  Graph regularization weight: {graph_reg_weight}")
+    print(f"  Sparsity regularization weight: {sparsity_weight}")
 
     # Training loop
     print(f"\nStarting training...")
@@ -161,15 +164,24 @@ def train(config_path: str = 'config/config.yaml'):
     training_history = []
 
     for epoch in tqdm(range(n_epochs)):
-        epoch_loss, epoch_feature_loss, epoch_graph_loss = train_epoch(
-            model, dataloader, optimizer, criterion, device, n_genes, prior_adjacency,graph_reg_weight
+        epoch_loss, epoch_feature_loss, epoch_graph_loss, epoch_sparsity_loss = train_epoch(
+            model,
+            dataloader,
+            optimizer,
+            criterion,
+            device,
+            n_genes,
+            prior_adjacency,
+            graph_reg_weight,
+            sparsity_weight,
         )
         
         # Store all loss components
         training_history.append({
             'total_loss': epoch_loss,
             'feature_loss': epoch_feature_loss,
-            'graph_loss': epoch_graph_loss
+            'graph_loss': epoch_graph_loss,
+            'sparsity_loss': epoch_sparsity_loss
         })
 
         # Update scheduler (use total loss)
@@ -185,6 +197,7 @@ def train(config_path: str = 'config/config.yaml'):
                 'loss': best_loss,
                 'feature_loss': epoch_feature_loss,
                 'graph_loss': epoch_graph_loss,
+                'sparsity_loss': epoch_sparsity_loss,
                 'n_genes': n_genes,
                 'mean': mean.item(),
                 'std': std.item(),
@@ -196,6 +209,7 @@ def train(config_path: str = 'config/config.yaml'):
                 f"Total Loss: {epoch_loss:.6f}, "
                 f"Feature Loss: {epoch_feature_loss:.6f}, "
                 f"Graph Loss: {epoch_graph_loss:.6f}, "
+                f"Sparsity Loss: {epoch_sparsity_loss:.6f}, "
                 f"Best Loss: {best_loss:.6f}")
 
     print(f"\nTraining completed!")

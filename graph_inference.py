@@ -8,9 +8,38 @@ import argparse
 from ritini.data.trajectory_loader import prepare_trajectories_data
 from ritini.utils.utils import load_config, get_device, load_trained_model
 from ritini.utils.attention_graphs import adjacency_to_edge_index, attention_to_adjacency
-from ritini.visualizations.graph_visualizations import extract_attention_over_time, visualize_temporal_graphs
+from ritini.visualizations.graph_visualizations import (
+    extract_attention_over_time,
+    visualize_temporal_graphs,
+    visualize_prior_vs_inferred,
+    visualize_focus_gene_temporal_graphs,
+)
 
-def main(checkpoint_path: str):
+def _parse_focus_gene_value(value):
+    """Parse focus gene CLI value.
+
+    Accepts gene names (e.g., "G51") or integer indices (e.g., "12").
+    """
+    if value is None:
+        return None
+
+    normalized = str(value).strip()
+    if normalized.lower() in {'none', 'null', ''}:
+        return None
+
+    # Support integer indices passed as strings
+    if normalized.lstrip('-').isdigit():
+        return int(normalized)
+
+    return normalized
+
+
+def main(
+    checkpoint_path: str,
+    focus_gene_override=None,
+    focus_mode_override=None,
+    focus_top_k_override=None,
+):
     """Main visualization pipeline.
     
     Args:
@@ -60,6 +89,18 @@ def main(checkpoint_path: str):
     animation_fps = vis_config.get('animation_fps', 2)
     figsize_per_graph = tuple(vis_config.get('figsize_per_graph', [4, 4]))
     dt = vis_config.get('dt', 0.1)  # Time step size
+    focus_gene = vis_config.get('focus_gene')
+    focus_mode = vis_config.get('focus_mode', 'both')
+    focus_top_k = vis_config.get('focus_top_k')
+
+    # Optional CLI overrides so users can visualize different focus genes
+    # without retraining the model or editing the saved output config.
+    if focus_gene_override is not None:
+        focus_gene = _parse_focus_gene_value(focus_gene_override)
+    if focus_mode_override is not None:
+        focus_mode = focus_mode_override
+    if focus_top_k_override is not None:
+        focus_top_k = focus_top_k_override
     
     # Create output directory
     os.makedirs(vis_output_dir, exist_ok=True)
@@ -120,8 +161,8 @@ def main(checkpoint_path: str):
         weights_array = np.array(all_weights)
         median_val = np.median(weights_array)
         std_val = np.std(weights_array)
-        # threshold = median_val + std_val
-        threshold = median_val + 2*std_val
+        threshold = median_val + std_val
+        # threshold = median_val + 2*std_val
         
         print(f"Attention weights - MIN: {weights_array.min()}, MAX: {weights_array.max()}")
         print(f"Median: {median_val}, Std: {std_val}, Threshold: {threshold}")
@@ -144,6 +185,42 @@ def main(checkpoint_path: str):
                               threshold=threshold,
                               figsize=(8, 8), node_size=500
     )
+
+    # 2. Prior vs inferred comparison (average attention)
+    print("  Creating prior vs inferred comparison plot...")
+    attention_matrices = []
+    for attn, edge_idx in zip(attention_history, edge_index_history):
+        if attn is not None:
+            attention_matrices.append(attention_to_adjacency(attn, edge_idx, n_genes))
+    if len(attention_matrices) > 0:
+        avg_attention = torch.stack(attention_matrices, dim=0).mean(dim=0)
+        visualize_prior_vs_inferred(
+            prior_adjacency=prior_adjacency,
+            inferred_adjacency=avg_attention,
+            gene_names=gene_names,
+            output_dir=vis_output_dir,
+            threshold=threshold,
+            node_size=500,
+        )
+    else:
+        print("  Skipping comparison plot: no attention matrices were extracted.")
+
+    # 3. Focus-gene temporal visualization
+    if focus_gene is not None:
+        print("  Creating focus-gene temporal plots...")
+        visualize_focus_gene_temporal_graphs(
+            attention_history=attention_history,
+            edge_index_history=edge_index_history,
+            gene_names=gene_names,
+            n_genes=n_genes,
+            output_dir=vis_output_dir,
+            focus_gene=focus_gene,
+            threshold=threshold,
+            mode=focus_mode,
+            top_k=focus_top_k,
+            figsize=(8, 8),
+            node_size=600,
+        )
     
     # # 2. Attention heatmaps
     # print("  Creating attention heatmaps...")
@@ -203,8 +280,32 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Visualize RiTINI temporal graphs')
     parser.add_argument('--checkpoint', type=str, required=True,
                         help='Path to model checkpoint (.pt file)')
+    parser.add_argument(
+        '--focus-gene',
+        type=str,
+        default=None,
+        help='Override focus gene for visualization (gene name like G51 or index like 12).'
+    )
+    parser.add_argument(
+        '--focus-mode',
+        type=str,
+        choices=['incoming', 'outgoing', 'both'],
+        default=None,
+        help='Override focus mode for visualization.'
+    )
+    parser.add_argument(
+        '--focus-top-k',
+        type=int,
+        default=None,
+        help='Override top-k neighbors for focus-gene temporal plots.'
+    )
     args = parser.parse_args()
     
-    main(checkpoint_path=args.checkpoint)
+    main(
+        checkpoint_path=args.checkpoint,
+        focus_gene_override=args.focus_gene,
+        focus_mode_override=args.focus_mode,
+        focus_top_k_override=args.focus_top_k,
+    )
 
 # uv run graph_inference.py --checkpoint /home/jcr222/workspace/RiTINI/output/best_model.pt

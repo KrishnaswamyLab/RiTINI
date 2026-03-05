@@ -7,6 +7,8 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
     Returns: avg_loss, avg_feature_loss, avg_graph_loss, avg_sparsity_loss
     """
     model.train()
+    graph_reg_weight = float(graph_reg_weight)
+    sparsity_weight = float(sparsity_weight)
     total_loss = 0
     total_feature_loss = 0
     total_graph_loss = 0
@@ -59,9 +61,7 @@ def train_epoch(model, dataloader, optimizer, criterion, device, n_genes, prior_
             # GAT normalizes over incoming edges (targets), producing valid probabilities
             # Clamp to [0, 1] to handle rare numerical precision issues (typically <0.1% of values)
             clamped_attn = torch.clamp(attn_weights, 0.0, 1.0)
-            
             current_adj = attention_to_adjacency(clamped_attn, edge_index_attn, n_genes)
-            
             # Verify no self-loops exist (diagonal should be 0)
             # Note: We don't zero it here as that would break softmax normalization if self-loops existed
             # Instead, we prevent self-loops at the source (prior adjacency + add_self_loops=False)

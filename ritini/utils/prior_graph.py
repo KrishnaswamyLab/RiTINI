@@ -10,12 +10,12 @@ def compute_prior_adjacency(
     mode: str = 'granger_causality',
     lag_order: int = 1,
     test: str = 'ssr_chi2test',
-    neg_log_threshold: float = 5.0,
-    p_value_threshold: Optional[float] = None,
+    neg_log_threshold: float = 30.0, # increase this to make the graph sparser
+    p_value_threshold: Optional[float] = None, #lower this to get sparser graphs
     edge_weighted: bool = False,
     directed: bool = True,
     fully_connected_self_loops: bool = False,
-    eps: float = 1e-10,
+    eps: float = 1e-25,
     gene_names: Optional[Union[list, np.ndarray]] = None,
     db_extract_file: Optional[str] = None,
     db_column: str = 'HGNC symbol',
