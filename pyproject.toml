@@ -1,10 +1,24 @@
 [project]
 name = "ritini"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.0.1"
+description = "RiTINI is a Python package for modeling and analyzing gene regulatory networks from single cell trajectories."
 readme = "README.md"
+requires-python = ">=3.9"
+# license = "LicenseRef-Yale-License"
+license-files =["LICENSE.md"]
+keywords = ["neural ode", "trajectory", "ritini", "gene regulatory", "single cell RNA", "graphs"]
+authors = [
+  {name = "bjoaofelipe", email = "joaofelipe.rocha@yale.edu"},
+  {name = "siddharthviswanath", email = "siddharth.viswanath@yale.edu"}
+]
 
-requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    # "License :: Yale License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+]
 
 dependencies = [
     "matplotlib>=3.10.6",
@@ -17,12 +31,20 @@ dependencies = [
     "networkx>=3.0",
     "numpy>=1.24.0",
     "torchdiffeq>=0.2.3",
-    "pytest>=8.4.2",
     "scanpy>=1.11.4",
     "scikit-misc>=0.5.1",
-    "ipykernel>=6.30.1",
     "pyyaml>=6.0.2",
 ]
 
 [tool.setuptools.packages.find]
 include = ["ritini", "ritini.*"]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+    "pytest>=8.4.2",
+]
