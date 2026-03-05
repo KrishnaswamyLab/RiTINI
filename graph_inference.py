@@ -15,7 +15,31 @@ from ritini.visualizations.graph_visualizations import (
     visualize_focus_gene_temporal_graphs,
 )
 
-def main(checkpoint_path: str):
+def _parse_focus_gene_value(value):
+    """Parse focus gene CLI value.
+
+    Accepts gene names (e.g., "G51") or integer indices (e.g., "12").
+    """
+    if value is None:
+        return None
+
+    normalized = str(value).strip()
+    if normalized.lower() in {'none', 'null', ''}:
+        return None
+
+    # Support integer indices passed as strings
+    if normalized.lstrip('-').isdigit():
+        return int(normalized)
+
+    return normalized
+
+
+def main(
+    checkpoint_path: str,
+    focus_gene_override=None,
+    focus_mode_override=None,
+    focus_top_k_override=None,
+):
     """Main visualization pipeline.
     
     Args:
@@ -68,6 +92,15 @@ def main(checkpoint_path: str):
     focus_gene = vis_config.get('focus_gene')
     focus_mode = vis_config.get('focus_mode', 'both')
     focus_top_k = vis_config.get('focus_top_k')
+
+    # Optional CLI overrides so users can visualize different focus genes
+    # without retraining the model or editing the saved output config.
+    if focus_gene_override is not None:
+        focus_gene = _parse_focus_gene_value(focus_gene_override)
+    if focus_mode_override is not None:
+        focus_mode = focus_mode_override
+    if focus_top_k_override is not None:
+        focus_top_k = focus_top_k_override
     
     # Create output directory
     os.makedirs(vis_output_dir, exist_ok=True)
@@ -247,8 +280,32 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Visualize RiTINI temporal graphs')
     parser.add_argument('--checkpoint', type=str, required=True,
                         help='Path to model checkpoint (.pt file)')
+    parser.add_argument(
+        '--focus-gene',
+        type=str,
+        default=None,
+        help='Override focus gene for visualization (gene name like G51 or index like 12).'
+    )
+    parser.add_argument(
+        '--focus-mode',
+        type=str,
+        choices=['incoming', 'outgoing', 'both'],
+        default=None,
+        help='Override focus mode for visualization.'
+    )
+    parser.add_argument(
+        '--focus-top-k',
+        type=int,
+        default=None,
+        help='Override top-k neighbors for focus-gene temporal plots.'
+    )
     args = parser.parse_args()
     
-    main(checkpoint_path=args.checkpoint)
+    main(
+        checkpoint_path=args.checkpoint,
+        focus_gene_override=args.focus_gene,
+        focus_mode_override=args.focus_mode,
+        focus_top_k_override=args.focus_top_k,
+    )
 
 # uv run graph_inference.py --checkpoint /home/jcr222/workspace/RiTINI/output/best_model.pt
