@@ -3,7 +3,7 @@ name = "ritini"
 version = "0.0.1"
 description = "RiTINI is a Python package for modeling and analyzing gene regulatory networks from single cell trajectories."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 # license = "LicenseRef-Yale-License"
 license-files =["LICENSE.md"]
 keywords = ["neural ode", "trajectory", "ritini", "gene regulatory", "single cell RNA", "graphs"]

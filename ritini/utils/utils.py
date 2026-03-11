@@ -41,6 +41,8 @@ def load_trained_model(checkpoint_path, model_config, device):
     model = RiTINI(
         in_features=1,
         out_features=1,
+        input_latent_dim=model_config.get('input_latent_dim', 16),
+        history_length=model_config.get('history_length', 5),
         n_heads=model_config['n_heads'],
         feat_dropout=model_config['feat_dropout'],
         attn_dropout=model_config['attn_dropout'],
@@ -48,6 +50,7 @@ def load_trained_model(checkpoint_path, model_config, device):
         residual=model_config['residual'],
         activation=get_activation(model_config['activation']),
         bias=model_config['bias'],
+        ode_method=model_config.get('ode_method', 'rk4'),
         device=device
     ).to(device)
     

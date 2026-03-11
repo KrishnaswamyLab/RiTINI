@@ -2639,17 +2639,15 @@ wheels = [
 
 [[package]]
 name = "ritini"
-version = "0.1.0"
-source = { virtual = "." }
+version = "0.0.1"
+source = { editable = "." }
 dependencies = [
-    { name = "ipykernel" },
     { name = "matplotlib" },
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "networkx", version = "3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pymetis" },
-    { name = "pytest" },
     { name = "pyyaml" },
     { name = "scanpy" },
     { name = "scikit-misc" },
@@ -2661,14 +2659,18 @@ dependencies = [
     { name = "torchvision" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "ipykernel" },
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
-    { name = "ipykernel", specifier = ">=6.30.1" },
     { name = "matplotlib", specifier = ">=3.10.6" },
     { name = "networkx", specifier = ">=3.0" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "pymetis", specifier = ">=2023.1.1" },
-    { name = "pytest", specifier = ">=8.4.2" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "scanpy", specifier = ">=1.11.4" },
     { name = "scikit-misc", specifier = ">=0.5.1" },
@@ -2678,6 +2680,12 @@ requires-dist = [
     { name = "torchaudio", specifier = ">=2.8.0" },
     { name = "torchdiffeq", specifier = ">=0.2.3" },
     { name = "torchvision", specifier = ">=0.23.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ipykernel", specifier = ">=6.29.5" },
+    { name = "pytest", specifier = ">=8.4.2" },
 ]
 
 [[package]]

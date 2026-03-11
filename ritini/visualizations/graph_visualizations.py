@@ -233,6 +233,7 @@ def visualize_prior_vs_inferred(
 
     plt.tight_layout()
     save_path = os.path.join(output_dir, 'prior_vs_inferred_comparison.png')
+    plt.show()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"Saved prior vs inferred comparison plot to {save_path}")

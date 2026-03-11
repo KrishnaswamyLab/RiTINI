@@ -39,6 +39,29 @@ pip install -e .
 
 ## Usage
 
+### Notebook-Friendly API (pip install)
+
+After installing with `pip install ritini`, you can run the full workflow directly from Python:
+
+```python
+import ritini
+
+# 1) Preprocess raw inputs -> processed trajectory / prior graph files
+ritini.preprocess(config_path="configs/config.yaml")
+
+# 2) Train model (alias: ritini.train(...))
+checkpoint = ritini.fit(config_path="configs/config.yaml")
+
+# 3a) Focus-gene storyboard visualization
+ritini.focus_storyboard(checkpoint_path=checkpoint, focus_gene="G51")
+
+# 3b) Gene trajectory visualizations
+ritini.trajectory_viz(checkpoint_path=checkpoint, visualization_config_path="configs/visualization.yaml")
+
+# 3c) Graph inference visualizations
+ritini.graph_inference(checkpoint_path=checkpoint, focus_gene="G51")
+```
+
 ### Running the Full Pipeline
 
 To run preprocessing and training sequentially:
